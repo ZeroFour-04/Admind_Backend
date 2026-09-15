@@ -1,0 +1,14 @@
+asgiref==3.12.1
+colorama==0.4.6
+Django==5.2.17
+djangorestframework==3.18.1
+iniconfig==2.3.0
+packaging==26.3
+pluggy==1.6.0
+psycopg==3.3.5
+psycopg-binary==3.3.5
+Pygments==2.21.0
+pytest==9.1.1
+python-dotenv==1.2.3
+sqlparse==0.6.0
+tzdata==2026.4

@@ -2,6 +2,7 @@ import uuid
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
+from django.utils import timezone
 
 
 class UsuarioManager(BaseUserManager):
@@ -46,3 +47,39 @@ class Usuario(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.correo
+
+
+class TokenDeSesionManager(models.Manager):
+    def vigente(self, huella):
+        return (
+            self.select_related("usuario__persona")
+            .filter(huella=huella, vence_en__gt=timezone.now())
+            .first()
+        )
+
+
+class TokenDeSesion(models.Model):
+    """La sesión de un usuario en la API (maestro §12.7 b).
+
+    El token viaja en cada petición; aquí solo se guarda su huella, como con las contraseñas.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    usuario = models.ForeignKey(Usuario, on_delete=models.PROTECT, related_name="tokens")
+    huella = models.CharField(max_length=64, unique=True)
+    # Lo fija el selector de conjunto (HU-26). Ninguna petición lo trae como parámetro.
+    conjunto_activo = models.ForeignKey(
+        "conjuntos.Conjunto",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    dos_factores_verificado = models.BooleanField(default=False)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    vence_en = models.DateTimeField()
+
+    objects = TokenDeSesionManager()
+
+    def __str__(self):
+        return f"{self.usuario} · vence {self.vence_en:%Y-%m-%d %H:%M}"

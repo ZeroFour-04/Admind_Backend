@@ -18,6 +18,7 @@ TABLAS_GLOBALES = {
     "cuentas_usuario_groups": "la crea Django por PermissionsMixin; AdMind no usa grupos de Django",
     "cuentas_usuario_user_permissions": "la crea Django por PermissionsMixin; AdMind no usa esos permisos",
     "conjuntos_conjunto": "el conjunto mismo",
+    "cuentas_tokendesesion": "sesión de un usuario; el conjunto activo cambia dentro de la misma sesión",
 }
 
 # Llevan conjunto_id, pero puede ser nulo.

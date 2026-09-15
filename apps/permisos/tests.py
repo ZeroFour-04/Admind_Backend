@@ -1,8 +1,9 @@
-"""Pruebas del catálogo de roles y permisos y del modelo Asignacion."""
-from datetime import date
+"""Pruebas del catálogo de roles y permisos, del modelo Asignacion y de los permisos efectivos."""
+from datetime import date, timedelta
 
 import pytest
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from apps.conjuntos.models import Conjunto
 from apps.permisos.catalogo import (
@@ -13,6 +14,7 @@ from apps.permisos.catalogo import (
     Rol,
 )
 from apps.permisos.models import Asignacion
+from apps.permisos.servicios import permisos_efectivos
 from apps.personas.models import Persona, TipoDocumento
 
 pytestmark = pytest.mark.django_db
@@ -137,3 +139,46 @@ def test_persona_con_roles_en_dos_conjuntos_es_un_solo_registro(persona, conjunt
 
     assert Persona.objects.count() == 1
     assert persona.asignaciones.count() == 2
+
+
+# Vigencia y permisos efectivos
+
+
+def test_asignacion_con_vigencia_hasta_hoy_ya_no_esta_vigente(persona, conjunto):
+    hoy = timezone.localdate()
+    Asignacion.objects.create(
+        persona=persona, rol=Rol.RESIDENTE, conjunto=conjunto, vigencia_desde=hoy - timedelta(days=30), vigencia_hasta=hoy
+    )
+
+    assert not Asignacion.objects.vigentes().exists()
+
+
+def test_asignacion_que_empieza_manana_todavia_no_esta_vigente(persona, conjunto):
+    Asignacion.objects.create(
+        persona=persona, rol=Rol.RESIDENTE, conjunto=conjunto, vigencia_desde=timezone.localdate() + timedelta(days=1)
+    )
+
+    assert not Asignacion.objects.vigentes().exists()
+
+
+def test_permisos_efectivos_son_la_union_de_los_roles_en_el_conjunto(persona, conjunto):
+    Asignacion.objects.create(persona=persona, rol=Rol.CONSEJO, conjunto=conjunto)
+    Asignacion.objects.create(persona=persona, rol=Rol.RESIDENTE, conjunto=conjunto)
+
+    esperados = PERMISOS_POR_ROL[Rol.CONSEJO] | PERMISOS_POR_ROL[Rol.RESIDENTE]
+    assert permisos_efectivos(persona, conjunto.id) == esperados
+
+
+def test_rol_de_un_conjunto_no_da_permisos_en_otro(persona, conjunto):
+    otro_conjunto = Conjunto.objects.create(nombre="Mirador")
+    Asignacion.objects.create(persona=persona, rol=Rol.ADMINISTRACION, conjunto=conjunto)
+
+    assert permisos_efectivos(persona, otro_conjunto.id) == set()
+
+
+def test_roles_de_plataforma_cuentan_en_cualquier_conjunto_y_sin_conjunto(persona, conjunto):
+    Asignacion.objects.create(persona=persona, rol=Rol.SUPERUSUARIO)
+    Asignacion.objects.create(persona=persona, rol=Rol.RESIDENTE, conjunto=conjunto)
+
+    assert permisos_efectivos(persona, None) == PERMISOS_DE_PLATAFORMA
+    assert permisos_efectivos(persona, conjunto.id) == PERMISOS_DE_PLATAFORMA | PERMISOS_POR_ROL[Rol.RESIDENTE]

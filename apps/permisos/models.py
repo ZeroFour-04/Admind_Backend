@@ -7,6 +7,15 @@ from django.utils import timezone
 from apps.permisos.catalogo import ROLES_DE_CONJUNTO, ROLES_DE_PLATAFORMA, Rol
 
 
+class AsignacionQuerySet(models.QuerySet):
+    def vigentes(self):
+        """Ya empezaron y no han terminado. `vigencia_hasta` es el primer día sin el rol."""
+        hoy = timezone.localdate()
+        return self.filter(vigencia_desde__lte=hoy).filter(
+            Q(vigencia_hasta__isnull=True) | Q(vigencia_hasta__gt=hoy)
+        )
+
+
 class Asignacion(models.Model):
     """Un rol del catálogo para una persona en un conjunto. Retirarlo es cerrar la vigencia, no borrar."""
 
@@ -28,6 +37,8 @@ class Asignacion(models.Model):
     vigencia_desde = models.DateField(default=timezone.localdate)
     vigencia_hasta = models.DateField(null=True, blank=True)
     creado_en = models.DateTimeField(auto_now_add=True)
+
+    objects = AsignacionQuerySet.as_manager()
 
     class Meta:
         constraints = [

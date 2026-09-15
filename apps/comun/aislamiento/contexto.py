@@ -1,7 +1,7 @@
 """Conjunto activo de la operación en curso (maestro §5.4).
 
-En una petición lo fija el middleware a partir de la sesión. Fuera de una petición (pruebas, procesos
-de plataforma) se fija a mano con `usar_conjunto`.
+En una petición lo fija `VistaDeConjunto` a partir de la sesión del token. Fuera de una petición
+(pruebas, procesos de plataforma) se fija a mano con `usar_conjunto`.
 """
 import uuid
 from contextlib import contextmanager
@@ -32,3 +32,18 @@ def usar_conjunto(conjunto_id):
         yield
     finally:
         _conjunto_activo.reset(token)
+
+
+@contextmanager
+def contexto_limpio():
+    """Arranca sin conjunto activo y, al salir, deja todo como estaba, aunque haya un error."""
+    token = _conjunto_activo.set(None)
+    try:
+        yield
+    finally:
+        _conjunto_activo.reset(token)
+
+
+def fijar_conjunto_activo(conjunto_id):
+    """Solo dentro de `contexto_limpio()`, que es quien lo suelta al terminar."""
+    _conjunto_activo.set(uuid.UUID(str(conjunto_id)))

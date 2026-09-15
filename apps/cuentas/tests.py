@@ -1,11 +1,14 @@
-"""Pruebas de HU-01: inicio y cierre de sesión con token."""
+"""Pruebas de HU-01 (inicio y cierre de sesión con token) y HU-26 (selector de conjunto activo)."""
 from datetime import timedelta
 
 import pytest
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from apps.conjuntos.models import Conjunto
 from apps.cuentas.models import TokenDeSesion, Usuario
+from apps.permisos.catalogo import PERMISOS_DE_PLATAFORMA, PERMISOS_POR_ROL, Rol
+from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
 
 pytestmark = pytest.mark.django_db
@@ -123,3 +126,86 @@ def test_cerrar_sesion_invalida_el_token_de_inmediato(cliente, usuario):
     assert cerrar_sesion(cliente, token).status_code == 204
     assert cerrar_sesion(cliente, token).status_code == 401
     assert not TokenDeSesion.objects.exists()
+
+
+# Selector de conjunto activo (HU-26)
+
+
+def asignar(usuario, rol, conjunto=None):
+    return Asignacion.objects.create(persona=usuario.persona, rol=rol, conjunto=conjunto)
+
+
+def entrar(cliente):
+    respuesta = iniciar_sesion(cliente, "laura@correo.com", CONTRASENA)
+    cliente.credentials(HTTP_AUTHORIZATION=f"Token {respuesta.json()['token']}")
+    return respuesta.json()
+
+
+def elegir(cliente, conjunto_id):
+    return cliente.post("/auth/conjunto-activo/", {"conjunto": str(conjunto_id)}, format="json")
+
+
+def test_con_varios_conjuntos_entra_sin_conjunto_activo_y_los_ve_todos(cliente, usuario):
+    for nombre in ["Torres del Río", "Mirador", "Balcones"]:
+        asignar(usuario, Rol.RESIDENTE, Conjunto.objects.create(nombre=nombre))
+
+    sesion = entrar(cliente)
+    disponibles = cliente.get("/auth/conjuntos/").json()
+
+    assert sesion["conjunto_activo"] is None
+    assert [conjunto["nombre"] for conjunto in disponibles] == ["Balcones", "Mirador", "Torres del Río"]
+
+
+def test_con_un_solo_conjunto_entra_directo(cliente, usuario):
+    torres = Conjunto.objects.create(nombre="Torres del Río")
+    asignar(usuario, Rol.ADMINISTRACION, torres)
+
+    sesion = entrar(cliente)
+
+    assert sesion["conjunto_activo"] == {"id": str(torres.id), "nombre": "Torres del Río"}
+    assert set(sesion["permisos"]) == PERMISOS_POR_ROL[Rol.ADMINISTRACION]
+
+
+def test_conjunto_desactivado_o_sin_asignacion_vigente_no_aparece(cliente, usuario):
+    asignar(usuario, Rol.RESIDENTE, Conjunto.objects.create(nombre="Torres del Río"))
+    asignar(usuario, Rol.RESIDENTE, Conjunto.objects.create(nombre="Desactivado", activo=False))
+    cerrada = asignar(usuario, Rol.RESIDENTE, Conjunto.objects.create(nombre="Rol retirado"))
+    cerrada.vigencia_hasta = timezone.localdate()
+    cerrada.save()
+
+    entrar(cliente)
+    disponibles = cliente.get("/auth/conjuntos/").json()
+
+    assert [conjunto["nombre"] for conjunto in disponibles] == ["Torres del Río"]
+
+
+def test_elegir_un_conjunto_sin_asignacion_responde_404(cliente, usuario):
+    asignar(usuario, Rol.RESIDENTE, Conjunto.objects.create(nombre="Torres del Río"))
+    ajeno = Conjunto.objects.create(nombre="Mirador")
+    entrar(cliente)
+
+    assert elegir(cliente, ajeno.id).status_code == 404
+
+
+def test_al_cambiar_de_conjunto_los_permisos_son_solo_los_del_nuevo(cliente, usuario):
+    torres = Conjunto.objects.create(nombre="Torres del Río")
+    mirador = Conjunto.objects.create(nombre="Mirador")
+    asignar(usuario, Rol.ADMINISTRACION, torres)
+    asignar(usuario, Rol.RESIDENTE, mirador)
+    entrar(cliente)
+
+    en_torres = elegir(cliente, torres.id).json()
+    en_mirador = elegir(cliente, mirador.id).json()
+
+    assert "reserva.aprobar" in en_torres["permisos"]
+    assert set(en_mirador["permisos"]) == PERMISOS_POR_ROL[Rol.RESIDENTE]
+    assert TokenDeSesion.objects.get().conjunto_activo_id == mirador.id
+
+
+def test_superusuario_entra_sin_conjunto_con_permisos_de_plataforma(cliente, usuario):
+    asignar(usuario, Rol.SUPERUSUARIO)
+
+    sesion = entrar(cliente)
+
+    assert sesion["conjunto_activo"] is None
+    assert set(sesion["permisos"]) == PERMISOS_DE_PLATAFORMA

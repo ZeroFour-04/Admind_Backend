@@ -41,7 +41,9 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     "apps.personas",
-    "apps.cuentas"
+    "apps.cuentas",
+    "apps.conjuntos",
+    "apps.permisos",
 ]
 AUTH_USER_MODEL = "cuentas.Usuario"
 
@@ -113,7 +115,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'America/Bogota'
 
 USE_I18N = True
 

@@ -55,6 +55,10 @@ def test_rol_de_plataforma_no_opera_dentro_de_un_conjunto():
     assert {"reserva.aprobar", "anuncio.publicar", "infraccion.registrar"}.isdisjoint(permisos)
 
 
+def test_administracion_puede_crear_conjuntos_desde_el_conjunto_activo():
+    assert "conjunto.crear" in PERMISOS_POR_ROL[Rol.ADMINISTRACION]
+
+
 def test_solo_administracion_aprueba_reservas():
     con_aprobacion = {rol for rol, permisos in PERMISOS_POR_ROL.items() if "reserva.aprobar" in permisos}
 

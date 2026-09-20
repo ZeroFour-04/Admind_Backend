@@ -2,7 +2,7 @@
 from django.db.models import Q
 
 from apps.conjuntos.models import Conjunto
-from apps.permisos.catalogo import PERMISOS_POR_ROL
+from apps.permisos.catalogo import PERMISOS_POR_ROL, Rol
 from apps.permisos.models import Asignacion
 
 
@@ -13,6 +13,12 @@ def conjuntos_disponibles(persona):
 
 
 def puede_operar_en(persona, conjunto_id):
+    if Asignacion.objects.vigentes().filter(
+        persona=persona,
+        rol=Rol.SUPERUSUARIO,
+        conjunto__isnull=True,
+    ).exists():
+        return Conjunto.objects.filter(pk=conjunto_id, activo=True).exists()
     return conjuntos_disponibles(persona).filter(pk=conjunto_id).exists()
 
 

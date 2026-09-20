@@ -8,6 +8,7 @@ Alcance: Núcleo (§3.1).
 
 - Modelo `Usuario`: tabla global, sin `conjunto_id` (§5.4)
 - Ingreso, salida y recuperación de contraseña
+- Creación de usuarios con un rol asignado en el conjunto activo
 - 2FA TOTP con `django-otp`, **obligatorio para todo usuario con algún permiso sensible**
 - Permiso de DRF que exige el 2FA verificado cuando la operación pide un permiso sensible (§7.2, punto 4)
 

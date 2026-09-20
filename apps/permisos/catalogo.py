@@ -22,6 +22,7 @@ ROLES_DE_CONJUNTO = frozenset(Rol.values) - ROLES_DE_PLATAFORMA
 PERMISOS_DE_PLATAFORMA = frozenset({
     "conjunto.crear", "conjunto.activar", "gobierno.restaurar",
     "auditoria_tecnica.ver", "registro.anular", "sistema.operar",
+    "usuario.gestionar",
 })
 
 PERMISOS = PERMISOS_DE_PLATAFORMA | frozenset({
@@ -54,6 +55,7 @@ PERMISOS_SENSIBLES = PERMISOS_DE_PLATAFORMA | frozenset({
 PERMISOS_POR_ROL = {
     Rol.SUPERUSUARIO: PERMISOS_DE_PLATAFORMA,
     Rol.ADMINISTRACION: frozenset({
+        "conjunto.crear",
         "conjunto.editar", "conjunto.branding",
         "persona.buscar", "persona.vincular",
         "regla.ver", "regla.configurar",

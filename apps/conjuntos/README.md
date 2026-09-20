@@ -7,7 +7,7 @@ La copropiedad. Todo lo demás cuelga de un conjunto.
 ## Qué va aquí
 
 - Modelo `Conjunto`, con baja lógica (`activo`) y doble confirmación escrita para desactivarlo: escribir el nombre exacto
-- **Asistente de creación** (`conjunto.crear`, solo Superusuario). El conjunto no queda operativo hasta tener datos básicos, catálogo de áreas, al menos un usuario con rol Administración y reglamento cargado. Las reglas beta se configuran en el mismo asistente
+- **Asistente de creación** (`conjunto.crear`, para Superusuario y Administración del conjunto activo). El conjunto no queda operativo hasta tener datos básicos, catálogo de áreas, al menos un usuario con rol Administración y reglamento cargado. Las reglas beta se configuran en el mismo asistente
 - Cambio de **conjunto activo** (HU-26), que escribe en la sesión
 
 ## Con qué se conecta

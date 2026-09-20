@@ -166,6 +166,49 @@ def test_con_un_solo_conjunto_entra_directo(cliente, usuario):
     assert set(sesion["permisos"]) == PERMISOS_POR_ROL[Rol.ADMINISTRACION]
 
 
+def test_administracion_puede_crear_un_conjunto_con_un_conjunto_activo(cliente, usuario):
+    activo = Conjunto.objects.create(nombre="Torres del Río")
+    asignar(usuario, Rol.ADMINISTRACION, activo)
+    entrar(cliente)
+
+    respuesta = cliente.post(
+        "/auth/conjuntos/",
+        {"nombre": "Mirador", "direccion": "Calle 1"},
+        format="json",
+    )
+
+    assert respuesta.status_code == 201
+    assert respuesta.json()["nombre"] == "Mirador"
+
+
+def test_al_crear_usuario_se_asigna_el_rol_en_el_conjunto_activo(cliente, usuario):
+    from apps.permisos.models import Asignacion
+
+    activo = Conjunto.objects.create(nombre="Torres del Río")
+    asignar(usuario, Rol.ADMINISTRACION, activo)
+    entrar(cliente)
+
+    respuesta = cliente.post(
+        "/auth/usuarios/",
+        {
+            "tipo_documento": TipoDocumento.CC,
+            "numero_documento": "1098765432",
+            "nombres": "Carlos",
+            "apellidos": "Pérez",
+            "correo": "carlos@correo.com",
+            "contrasena": CONTRASENA,
+            "rol": Rol.RESIDENTE,
+        },
+        format="json",
+    )
+
+    assert respuesta.status_code == 201
+    nuevo_usuario = Usuario.objects.get(correo="carlos@correo.com")
+    asignacion = Asignacion.objects.get(persona=nuevo_usuario.persona)
+    assert asignacion.rol == Rol.RESIDENTE
+    assert asignacion.conjunto_id == activo.id
+
+
 def test_conjunto_desactivado_o_sin_asignacion_vigente_no_aparece(cliente, usuario):
     asignar(usuario, Rol.RESIDENTE, Conjunto.objects.create(nombre="Torres del Río"))
     asignar(usuario, Rol.RESIDENTE, Conjunto.objects.create(nombre="Desactivado", activo=False))
@@ -209,3 +252,26 @@ def test_superusuario_entra_sin_conjunto_con_permisos_de_plataforma(cliente, usu
 
     assert sesion["conjunto_activo"] is None
     assert set(sesion["permisos"]) == PERMISOS_DE_PLATAFORMA
+
+
+def test_superusuario_puede_crear_usuario_en_el_conjunto_activo(cliente, usuario):
+    activo = Conjunto.objects.create(nombre="Torres del Río")
+    asignar(usuario, Rol.SUPERUSUARIO)
+    entrar(cliente)
+    elegir(cliente, activo.id)
+
+    respuesta = cliente.post(
+        "/auth/usuarios/",
+        {
+            "tipo_documento": TipoDocumento.CC,
+            "numero_documento": "1098765432",
+            "nombres": "Carlos",
+            "apellidos": "Pérez",
+            "correo": "carlos@correo.com",
+            "contrasena": CONTRASENA,
+            "rol": Rol.RESIDENTE,
+        },
+        format="json",
+    )
+
+    assert respuesta.status_code == 201

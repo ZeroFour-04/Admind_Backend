@@ -4,4 +4,12 @@
 # DB_USER=admind_user
 # DB_PASSWORD=admind2026
 
+# Recuperación de contraseña (HU-01): dirección del frontend a la que lleva el enlace del correo.
+# ADMIND_FRONT_URL=http://127.0.0.1:8001
 
+# Correo por SMTP (maestro §7.1). Sin EMAIL_HOST, los correos se imprimen en la consola del servidor.
+# EMAIL_HOST=smtp.gmail.com
+# EMAIL_PORT=587
+# EMAIL_HOST_USER=
+# EMAIL_HOST_PASSWORD=
+# DEFAULT_FROM_EMAIL=AdMind <correo@dominio.com>

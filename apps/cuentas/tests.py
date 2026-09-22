@@ -135,9 +135,13 @@ def asignar(usuario, rol, conjunto=None):
     return Asignacion.objects.create(persona=usuario.persona, rol=rol, conjunto=conjunto)
 
 
-def entrar(cliente):
+def entrar(cliente, segundo_factor=True):
+    """Inicia sesión como Laura. Por defecto da el segundo factor por verificado: su flujo real
+    se prueba aparte, en test_dos_factores.py."""
     respuesta = iniciar_sesion(cliente, "laura@correo.com", CONTRASENA)
     cliente.credentials(HTTP_AUTHORIZATION=f"Token {respuesta.json()['token']}")
+    if segundo_factor:
+        TokenDeSesion.objects.filter(usuario__correo="laura@correo.com").update(dos_factores_verificado=True)
     return respuesta.json()
 
 
@@ -162,23 +166,8 @@ def test_con_un_solo_conjunto_entra_directo(cliente, usuario):
 
     sesion = entrar(cliente)
 
-    assert sesion["conjunto_activo"] == {"id": str(torres.id), "nombre": "Torres del Río"}
+    assert sesion["conjunto_activo"] == {"id": str(torres.id), "nombre": "Torres del Río", "acento": "verde"}
     assert set(sesion["permisos"]) == PERMISOS_POR_ROL[Rol.ADMINISTRACION]
-
-
-def test_administracion_puede_crear_un_conjunto_con_un_conjunto_activo(cliente, usuario):
-    activo = Conjunto.objects.create(nombre="Torres del Río")
-    asignar(usuario, Rol.ADMINISTRACION, activo)
-    entrar(cliente)
-
-    respuesta = cliente.post(
-        "/auth/conjuntos/",
-        {"nombre": "Mirador", "direccion": "Calle 1"},
-        format="json",
-    )
-
-    assert respuesta.status_code == 201
-    assert respuesta.json()["nombre"] == "Mirador"
 
 
 def test_al_crear_usuario_se_asigna_el_rol_en_el_conjunto_activo(cliente, usuario):
@@ -275,3 +264,165 @@ def test_superusuario_puede_crear_usuario_en_el_conjunto_activo(cliente, usuario
     )
 
     assert respuesta.status_code == 201
+
+
+# Usuarios del conjunto activo (HU-04, HU-05)
+
+
+def datos_de_usuario(**cambios):
+    datos = {
+        "tipo_documento": TipoDocumento.CC,
+        "numero_documento": "1098765432",
+        "nombres": "Carlos",
+        "apellidos": "Pérez",
+        "correo": "carlos@correo.com",
+        "contrasena": CONTRASENA,
+        "rol": Rol.RESIDENTE,
+    }
+    return {**datos, **cambios}
+
+
+def test_crear_usuario_con_un_documento_que_ya_existe_responde_400_y_no_duplica(cliente, usuario):
+    activo = Conjunto.objects.create(nombre="Torres del Río")
+    asignar(usuario, Rol.ADMINISTRACION, activo)
+    entrar(cliente)
+
+    # 1.023.456.789 es el documento de Laura escrito con puntos.
+    respuesta = cliente.post("/auth/usuarios/", datos_de_usuario(numero_documento="1.023.456.789"), format="json")
+
+    assert respuesta.status_code == 400
+    assert "numero_documento" in respuesta.json()
+    assert Persona.objects.count() == 1
+
+
+def test_crear_usuario_sin_conjunto_activo_responde_403(cliente, usuario):
+    asignar(usuario, Rol.SUPERUSUARIO)
+    entrar(cliente)
+
+    respuesta = cliente.post("/auth/usuarios/", datos_de_usuario(), format="json")
+
+    assert respuesta.status_code == 403
+    assert not Usuario.objects.filter(correo="carlos@correo.com").exists()
+
+
+def test_la_lista_de_usuarios_solo_trae_los_del_conjunto_activo_con_sus_roles_ahi(cliente, usuario):
+    torres = Conjunto.objects.create(nombre="Torres del Río")
+    mirador = Conjunto.objects.create(nombre="Mirador")
+    asignar(usuario, Rol.ADMINISTRACION, torres)
+    asignar(usuario, Rol.RESIDENTE, mirador)
+    entrar(cliente)
+    elegir(cliente, mirador.id)
+    Usuario.objects.create_user(
+        "vecino@correo.com",
+        CONTRASENA,
+        Persona.objects.create(tipo_documento=TipoDocumento.CC, numero_documento="55555", nombres="Ana", apellidos="Ruiz"),
+    )
+    Asignacion.objects.create(persona=Usuario.objects.get(correo="vecino@correo.com").persona, rol=Rol.RESIDENTE, conjunto=mirador)
+    elegir(cliente, torres.id)
+
+    respuesta = cliente.get("/auth/usuarios/")
+
+    assert respuesta.status_code == 200
+    assert [u["correo"] for u in respuesta.json()] == ["laura@correo.com"]
+    assert respuesta.json()[0]["roles"] == ["Administración"]
+
+
+def test_residente_no_puede_gestionar_usuarios(cliente, usuario):
+    asignar(usuario, Rol.RESIDENTE, Conjunto.objects.create(nombre="Torres del Río"))
+    entrar(cliente)
+
+    assert cliente.get("/auth/usuarios/").status_code == 403
+    assert cliente.post("/auth/usuarios/", datos_de_usuario(), format="json").status_code == 403
+
+
+# Recuperación de contraseña (HU-01)
+
+
+def pedir_enlace(cliente, correo="laura@correo.com"):
+    return cliente.post("/auth/recuperar/", {"correo": correo}, format="json")
+
+
+def enlace_del_correo(bandeja):
+    enlace = next(linea for linea in bandeja[-1].body.splitlines() if "/restablecer-contrasena/" in linea)
+    uid, token = enlace.rstrip("/").split("/")[-2:]
+    return uid, token
+
+
+def restablecer(cliente, uid, token, contrasena="otra-clave-larga-2026"):
+    return cliente.post(
+        "/auth/recuperar/confirmar/", {"uid": uid, "token": token, "contrasena": contrasena}, format="json"
+    )
+
+
+def test_quien_olvido_la_contrasena_recibe_un_enlace_por_correo(cliente, usuario, mailoutbox):
+    respuesta = pedir_enlace(cliente)
+
+    assert respuesta.status_code == 202
+    assert len(mailoutbox) == 1
+    assert mailoutbox[0].to == ["laura@correo.com"]
+    assert "/restablecer-contrasena/" in mailoutbox[0].body
+
+
+def test_pedir_enlace_no_revela_si_el_correo_existe(cliente, usuario, mailoutbox):
+    existe = pedir_enlace(cliente)
+    no_existe = pedir_enlace(cliente, "nadie@correo.com")
+
+    assert existe.status_code == no_existe.status_code == 202
+    assert existe.json() == no_existe.json()
+    assert len(mailoutbox) == 1
+
+
+def test_cuenta_desactivada_no_recibe_enlace(cliente, usuario, mailoutbox):
+    usuario.is_active = False
+    usuario.save()
+
+    assert pedir_enlace(cliente).status_code == 202
+    assert mailoutbox == []
+
+
+def test_con_el_enlace_cambia_la_contrasena_y_cierra_las_sesiones_abiertas(cliente, usuario, mailoutbox):
+    entrar(cliente)
+    pedir_enlace(cliente)
+    uid, token = enlace_del_correo(mailoutbox)
+
+    respuesta = restablecer(APIClient(), uid, token)
+
+    assert respuesta.status_code == 204
+    assert not TokenDeSesion.objects.exists()
+    assert iniciar_sesion(APIClient(), "laura@correo.com", "otra-clave-larga-2026").status_code == 200
+    assert iniciar_sesion(APIClient(), "laura@correo.com", CONTRASENA).status_code == 401
+
+
+def test_el_enlace_sirve_una_sola_vez(cliente, usuario, mailoutbox):
+    pedir_enlace(cliente)
+    uid, token = enlace_del_correo(mailoutbox)
+    restablecer(cliente, uid, token)
+
+    otra_vez = restablecer(cliente, uid, token, "una-tercera-clave-2026")
+
+    assert otra_vez.status_code == 400
+    assert iniciar_sesion(APIClient(), "laura@correo.com", "otra-clave-larga-2026").status_code == 200
+
+
+def test_el_enlace_vencido_no_sirve(cliente, usuario, mailoutbox, settings):
+    pedir_enlace(cliente)
+    uid, token = enlace_del_correo(mailoutbox)
+    settings.PASSWORD_RESET_TIMEOUT = -1
+
+    assert restablecer(cliente, uid, token).status_code == 400
+
+
+def test_enlace_inventado_no_sirve(cliente, usuario):
+    assert restablecer(cliente, "no-es-un-uid", "no-es-un-token").status_code == 400
+
+
+def test_la_contrasena_nueva_debe_cumplir_las_reglas(cliente, usuario, mailoutbox):
+    pedir_enlace(cliente)
+    uid, token = enlace_del_correo(mailoutbox)
+
+    respuesta = restablecer(cliente, uid, token, "123")
+
+    assert respuesta.status_code == 400
+    assert "contrasena" in respuesta.json()
+    # El enlace sigue sirviendo: la contraseña no cambió.
+    assert restablecer(cliente, uid, token).status_code == 204

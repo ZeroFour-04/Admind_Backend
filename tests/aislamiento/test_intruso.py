@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.comun.aislamiento.vistas import VistaDeConjunto
 from apps.conjuntos.models import Conjunto
-from apps.cuentas.models import Usuario
+from apps.cuentas.models import TokenDeSesion, Usuario
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
@@ -32,9 +32,11 @@ def crear_usuario(correo, *roles):
 
 
 def cliente_para(correo):
+    """Sesión con el segundo factor dado por verificado: su flujo se prueba en cuentas (HU-02)."""
     cliente = APIClient()
     respuesta = cliente.post("/auth/login/", {"correo": correo, "contrasena": CONTRASENA}, format="json")
     cliente.credentials(HTTP_AUTHORIZATION=f"Token {respuesta.json()['token']}")
+    TokenDeSesion.objects.filter(usuario__correo=correo).update(dos_factores_verificado=True)
     return cliente
 
 
@@ -72,9 +74,51 @@ def listado_de_areas(otro_conjunto):
     return reverse("pruebas-areas"), str(crear_area(otro_conjunto, "Piscina").pk)
 
 
-DETALLES = {"pruebas-area-detalle": detalle_de_area}
-LISTADOS = {"pruebas-areas": listado_de_areas}
-RUTAS_SIN_CONJUNTO = {"iniciar-sesion", "cerrar-sesion", "conjuntos-disponibles", "conjunto-activo"}
+def usuario_de(otro_conjunto):
+    correo = f"vecino{Usuario.objects.count()}@otro.com"
+    return crear_usuario(correo, (Rol.RESIDENTE, otro_conjunto))
+
+
+def detalle_de_usuario(otro_conjunto):
+    return reverse("usuario-detalle", kwargs={"usuario_id": usuario_de(otro_conjunto).pk})
+
+
+def listado_de_usuarios(otro_conjunto):
+    return reverse("usuarios"), str(usuario_de(otro_conjunto).pk)
+
+
+def resumen_del_conjunto(otro_conjunto):
+    return reverse("conjunto-actual"), str(otro_conjunto.pk)
+
+
+def activar_conjunto(otro_conjunto):
+    def intacto():
+        return not Conjunto.objects.get(pk=otro_conjunto.pk).operativo
+
+    return "post", reverse("conjunto-activar"), intacto
+
+
+DETALLES = {"pruebas-area-detalle": detalle_de_area, "usuario-detalle": detalle_de_usuario}
+LISTADOS = {
+    "pruebas-areas": listado_de_areas,
+    "usuarios": listado_de_usuarios,
+    "conjunto-actual": resumen_del_conjunto,
+}
+# Rutas de conjunto sin identificador ni listado: actúan sobre el conjunto activo.
+ACCIONES = {"conjunto-activar": activar_conjunto}
+RUTAS_SIN_CONJUNTO = {
+    "iniciar-sesion",
+    "cerrar-sesion",
+    "conjuntos-disponibles",
+    "conjunto-activo",
+    # El Superusuario crea conjuntos sin tener uno activo (HU-03).
+    "conjunto-crear",
+    "recuperar-contrasena",
+    "restablecer-contrasena",
+    "dos-factores-configurar",
+    "dos-factores-activar",
+    "dos-factores-verificar",
+}
 
 
 @pytest.mark.parametrize("ruta", sorted(DETALLES))
@@ -92,6 +136,16 @@ def test_listado_no_trae_datos_de_otro_conjunto(ruta, intruso, mirador):
 
     assert respuesta.status_code == 200
     assert id_ajeno not in respuesta.content.decode()
+
+
+@pytest.mark.parametrize("ruta", sorted(ACCIONES))
+def test_accion_no_acepta_otro_conjunto_y_no_lo_toca(ruta, intruso, mirador):
+    metodo, url, intacto = ACCIONES[ruta](mirador)
+
+    respuesta = getattr(intruso, metodo)(url, {"conjunto": str(mirador.id)}, format="json")
+
+    assert respuesta.status_code == 400
+    assert intacto()
 
 
 def test_conjunto_en_la_url_se_rechaza(intruso, mirador):
@@ -158,7 +212,7 @@ def rutas_de_la_api(patrones):
 
 
 def rutas_sin_cubrir(rutas):
-    con_prueba_del_intruso = set(DETALLES) | set(LISTADOS)
+    con_prueba_del_intruso = set(DETALLES) | set(LISTADOS) | set(ACCIONES)
     faltantes = []
     for nombre, vista in rutas:
         if issubclass(vista, VistaDeConjunto):

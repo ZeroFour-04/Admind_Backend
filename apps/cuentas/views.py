@@ -1,35 +1,32 @@
-from django.db import transaction
+from django.core.exceptions import ValidationError as ErrorDeValidacionDeDjango
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.cuentas import servicios
+from apps.comun.aislamiento.vistas import VistaDeConjunto
+from apps.conjuntos.serializers import ConjuntoListaSerializer
+from apps.cuentas import dos_factores, servicios
 from apps.cuentas.serializers import (
-    ConjuntoResumenSerializer,
-    ConjuntoListaSerializer,
-    CrearConjuntoSerializer,
+    CodigoSerializer,
     CrearUsuarioSerializer,
     ElegirConjuntoSerializer,
     IniciarSesionSerializer,
+    RestablecerContrasenaSerializer,
+    SolicitarRecuperacionSerializer,
     UsuarioResumenSerializer,
+    estado_de_la_sesion,
 )
-from apps.cuentas.models import Usuario
-from apps.personas.models import Persona
-from apps.conjuntos.models import Conjunto
-from apps.permisos.models import Asignacion
-from apps.permisos.servicios import conjuntos_disponibles, permisos_efectivos
+from apps.permisos.servicios import conjuntos_disponibles
+from apps.permisos.views import exigir_permiso
 
 MENSAJE_CREDENCIALES_INVALIDAS = "Correo o contraseña incorrectos."
-
-
-def estado_de_la_sesion(sesion):
-    conjunto = sesion.conjunto_activo
-    return {
-        "conjunto_activo": ConjuntoResumenSerializer(conjunto).data if conjunto else None,
-        "permisos": sorted(permisos_efectivos(sesion.usuario.persona, sesion.conjunto_activo_id)),
-    }
+MENSAJE_RECUPERACION_ENVIADA = (
+    "Si el correo está registrado, te enviamos un enlace para restablecer la contraseña."
+)
+MENSAJE_ENLACE_INVALIDO = "El enlace no es válido o ya venció. Pide uno nuevo."
+MENSAJE_CODIGO_INVALIDO = "Código incorrecto o vencido."
 
 
 class IniciarSesionView(APIView):
@@ -52,6 +49,8 @@ class IniciarSesionView(APIView):
 
 
 class CerrarSesionView(APIView):
+    permitida_sin_segundo_factor = True
+
     def post(self, request):
         servicios.cerrar_sesion(request.auth)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -59,24 +58,8 @@ class CerrarSesionView(APIView):
 
 class ConjuntosDisponiblesView(APIView):
     def get(self, request):
-        permisos = permisos_efectivos(request.user.persona, request.auth.conjunto_activo_id)
-        if "conjunto.crear" in permisos:
-            conjuntos = Conjunto.objects.filter(activo=True).order_by("nombre")
-        else:
-            conjuntos = conjuntos_disponibles(request.user.persona)
+        conjuntos = conjuntos_disponibles(request.user.persona)
         return Response(ConjuntoListaSerializer(conjuntos, many=True).data)
-
-    def post(self, request):
-        permisos = permisos_efectivos(request.user.persona, request.auth.conjunto_activo_id)
-        if "conjunto.crear" not in permisos:
-            return Response(
-                {"detail": "No tienes permiso para crear conjuntos."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        datos = CrearConjuntoSerializer(data=request.data)
-        datos.is_valid(raise_exception=True)
-        conjunto = Conjunto.objects.create(**datos.validated_data)
-        return Response(ConjuntoListaSerializer(conjunto).data, status=status.HTTP_201_CREATED)
 
 
 class ConjuntoActivoView(APIView):
@@ -92,57 +75,119 @@ class ConjuntoActivoView(APIView):
         return Response(estado_de_la_sesion(sesion))
 
 
-class CrearUsuarioView(APIView):
-    def _puede_gestionar(self, request):
-        return "usuario.gestionar" in permisos_efectivos(
-            request.user.persona, request.auth.conjunto_activo_id
-        )
+# Usuarios del conjunto activo
 
-    def get(self, request, usuario_id=None):
-        if not self._puede_gestionar(request):
-            return Response(
-                {"detail": "No tienes permiso para gestionar usuarios."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if usuario_id:
-            try:
-                usuario = Usuario.objects.select_related("persona").get(id=usuario_id)
-            except Usuario.DoesNotExist:
-                raise NotFound()
-            return Response(UsuarioResumenSerializer(usuario).data)
-        usuarios = Usuario.objects.select_related("persona").order_by("persona__apellidos", "persona__nombres")
+
+class UsuariosView(VistaDeConjunto):
+    def get(self, request):
+        exigir_permiso(request, "usuario.gestionar")
+        usuarios = servicios.usuarios_del_conjunto(request.auth.conjunto_activo_id)
         return Response(UsuarioResumenSerializer(usuarios, many=True).data)
 
     def post(self, request):
-        if "usuario.gestionar" not in permisos_efectivos(
-            request.user.persona, request.auth.conjunto_activo_id
-        ):
-            return Response(
-                {"detail": "No tienes permiso para gestionar usuarios."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
+        exigir_permiso(request, "usuario.gestionar")
         datos = CrearUsuarioSerializer(data=request.data)
         datos.is_valid(raise_exception=True)
-        with transaction.atomic():
-            persona = Persona.objects.create(
-                tipo_documento=datos.validated_data["tipo_documento"],
-                numero_documento=datos.validated_data["numero_documento"],
-                nombres=datos.validated_data["nombres"],
-                apellidos=datos.validated_data["apellidos"],
-                telefono=datos.validated_data.get("telefono", ""),
+        try:
+            usuario = servicios.registrar_usuario(request.auth.conjunto_activo_id, **datos.validated_data)
+        except servicios.PersonaYaExiste:
+            return Response(
+                {"numero_documento": ["Ya existe una persona con este documento."]},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-            usuario = Usuario.objects.create_user(
-                correo=datos.validated_data["correo"],
-                password=datos.validated_data["contrasena"],
-                persona=persona,
+        return Response({"id": str(usuario.id), "correo": usuario.correo}, status=status.HTTP_201_CREATED)
+
+
+class DetalleDeUsuarioView(VistaDeConjunto):
+    def get(self, request, usuario_id):
+        exigir_permiso(request, "usuario.gestionar")
+        usuario = servicios.usuarios_del_conjunto(request.auth.conjunto_activo_id).filter(pk=usuario_id).first()
+        if usuario is None:
+            # Sin más detalle: un 404 no confirma si la cuenta existe en otro conjunto (maestro §5.4).
+            raise NotFound()
+        return Response(UsuarioResumenSerializer(usuario).data)
+
+
+# Recuperación de contraseña (HU-01)
+
+
+class SolicitarRecuperacionView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        datos = SolicitarRecuperacionSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        servicios.solicitar_recuperacion(datos.validated_data["correo"])
+        # La misma respuesta exista o no la cuenta: no revela qué correos están registrados.
+        return Response({"detail": MENSAJE_RECUPERACION_ENVIADA}, status=status.HTTP_202_ACCEPTED)
+
+
+class RestablecerContrasenaView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        datos = RestablecerContrasenaSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        try:
+            servicios.restablecer_contrasena(**datos.validated_data)
+        except servicios.EnlaceInvalido:
+            return Response({"detail": MENSAJE_ENLACE_INVALIDO}, status=status.HTTP_400_BAD_REQUEST)
+        except ErrorDeValidacionDeDjango as error:
+            return Response({"contrasena": error.messages}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+# Segundo factor (HU-02). Son justo las vistas que se usan antes de tenerlo verificado.
+
+
+class ConfigurarDosFactoresView(APIView):
+    permitida_sin_segundo_factor = True
+
+    def post(self, request):
+        try:
+            return Response(dos_factores.iniciar_configuracion(request.auth))
+        except dos_factores.YaConfigurado:
+            return Response(
+                {"detail": "El segundo factor ya está configurado."}, status=status.HTTP_409_CONFLICT
             )
-            Asignacion.objects.create(
-                persona=persona,
-                rol=datos.validated_data["rol"],
-                conjunto_id=request.auth.conjunto_activo_id,
+
+
+class ActivarDosFactoresView(APIView):
+    permitida_sin_segundo_factor = True
+
+    def post(self, request):
+        datos = CodigoSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        try:
+            codigos = dos_factores.confirmar_configuracion(request.auth, datos.validated_data["codigo"])
+        except dos_factores.YaConfigurado:
+            return Response(
+                {"detail": "El segundo factor ya está configurado."}, status=status.HTTP_409_CONFLICT
             )
-        return Response(
-            {"id": str(usuario.id), "correo": usuario.correo},
-            status=status.HTTP_201_CREATED,
-        )
+        except dos_factores.SinConfigurar:
+            return Response(
+                {"detail": "Primero genera el código QR."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except dos_factores.CodigoInvalido:
+            return Response({"codigo": [MENSAJE_CODIGO_INVALIDO]}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"codigos_de_respaldo": codigos, **estado_de_la_sesion(request.auth)})
+
+
+class VerificarDosFactoresView(APIView):
+    permitida_sin_segundo_factor = True
+
+    def post(self, request):
+        datos = CodigoSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        try:
+            dos_factores.verificar(request.auth, datos.validated_data["codigo"])
+        except dos_factores.SinConfigurar:
+            return Response(
+                {"detail": "Todavía no tienes un segundo factor configurado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except dos_factores.CodigoInvalido:
+            return Response({"codigo": [MENSAJE_CODIGO_INVALIDO]}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(estado_de_la_sesion(request.auth))

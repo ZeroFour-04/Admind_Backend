@@ -1,37 +1,26 @@
-from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
+from rest_framework import serializers
 
+from apps.conjuntos.serializers import ConjuntoResumenSerializer
+from apps.cuentas import dos_factores
 from apps.cuentas.models import Usuario
-from apps.personas.models import Persona, TipoDocumento
-from apps.conjuntos.models import Conjunto
 from apps.permisos.catalogo import ROLES_DE_CONJUNTO, Rol
+from apps.permisos.servicios import permisos_efectivos
+from apps.personas.models import Persona, TipoDocumento, normalizar_documento
+
+
+def estado_de_la_sesion(sesion):
+    conjunto = sesion.conjunto_activo
+    return {
+        "conjunto_activo": ConjuntoResumenSerializer(conjunto).data if conjunto else None,
+        "permisos": sorted(permisos_efectivos(sesion.usuario.persona, sesion.conjunto_activo_id)),
+        "dos_factores": dos_factores.estado(sesion),
+    }
 
 
 class IniciarSesionSerializer(serializers.Serializer):
     correo = serializers.EmailField()
     contrasena = serializers.CharField(trim_whitespace=False, write_only=True)
-
-
-class ConjuntoResumenSerializer(serializers.Serializer):
-    id = serializers.UUIDField()
-    nombre = serializers.CharField()
-
-
-class ConjuntoListaSerializer(ConjuntoResumenSerializer):
-    direccion = serializers.CharField()
-
-
-class CrearConjuntoSerializer(serializers.Serializer):
-    nombre = serializers.CharField(max_length=80)
-    direccion = serializers.CharField(max_length=200, allow_blank=True, required=False)
-
-    def validate_nombre(self, valor):
-        valor = valor.strip()
-        if not valor:
-            raise serializers.ValidationError("El nombre del conjunto es obligatorio.")
-        if Conjunto.objects.filter(nombre__iexact=valor, activo=True).exists():
-            raise serializers.ValidationError("Ya existe un conjunto con ese nombre.")
-        return valor
 
 
 class ElegirConjuntoSerializer(serializers.Serializer):
@@ -59,6 +48,16 @@ class CrearUsuarioSerializer(serializers.Serializer):
         validate_password(valor)
         return valor
 
+    def validate(self, datos):
+        # Una persona existe una sola vez en la plataforma (HU-04). Vincular a alguien que ya
+        # existe es otra operación (HU-07), así que aquí solo se avisa.
+        numero = normalizar_documento(datos["numero_documento"])
+        if Persona.objects.filter(tipo_documento=datos["tipo_documento"], numero_documento=numero).exists():
+            raise serializers.ValidationError(
+                {"numero_documento": ["Ya existe una persona con este documento."]}
+            )
+        return datos
+
 
 class UsuarioResumenSerializer(serializers.Serializer):
     id = serializers.UUIDField()
@@ -68,6 +67,25 @@ class UsuarioResumenSerializer(serializers.Serializer):
     documento = serializers.CharField(source="persona.numero_documento")
     telefono = serializers.CharField(source="persona.telefono")
     activo = serializers.BooleanField(source="persona.activo")
+    roles = serializers.SerializerMethodField()
 
     def get_nombre(self, usuario):
         return str(usuario.persona)
+
+    def get_roles(self, usuario):
+        """Sus roles en el conjunto activo; los de otros conjuntos no se muestran."""
+        return [asignacion.get_rol_display() for asignacion in usuario.persona.asignaciones_en_conjunto]
+
+
+class SolicitarRecuperacionSerializer(serializers.Serializer):
+    correo = serializers.EmailField()
+
+
+class RestablecerContrasenaSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    contrasena = serializers.CharField(trim_whitespace=False, write_only=True)
+
+
+class CodigoSerializer(serializers.Serializer):
+    codigo = serializers.CharField(max_length=20)

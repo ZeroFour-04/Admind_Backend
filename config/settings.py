@@ -42,6 +42,9 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     "rest_framework",
+    "django_otp",
+    "django_otp.plugins.otp_totp",
+    "django_otp.plugins.otp_static",
     "apps.personas",
     "apps.cuentas",
     "apps.conjuntos",
@@ -49,12 +52,36 @@ INSTALLED_APPS = [
 ]
 AUTH_USER_MODEL = "cuentas.Usuario"
 
-# Toda vista exige un token válido, salvo las que lo declaren a propósito (maestro §12.7 b).
+# Toda vista exige un token válido, salvo las que lo declaren a propósito (maestro §12.7 b),
+# y el segundo factor verificado si la persona tiene algún permiso sensible (HU-02).
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["apps.cuentas.autenticacion.AutenticacionPorToken"],
-    "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+        "apps.cuentas.permisos.DosFactoresAlDia",
+    ],
 }
 DURACION_TOKEN_DE_SESION = timedelta(hours=1)
+
+# Nombre con el que aparece AdMind en la aplicación de autenticación (HU-02).
+OTP_TOTP_ISSUER = "AdMind"
+
+# Recuperación de contraseña (HU-01). El enlace lleva a una pantalla del frontend y vence en 1 hora.
+ADMIND_FRONT_URL = os.environ.get("ADMIND_FRONT_URL", "http://127.0.0.1:8001").rstrip("/")
+PASSWORD_RESET_TIMEOUT = 60 * 60
+
+# Correo por SMTP con contraseña de aplicación en .env, nunca en el repositorio (maestro §7.1).
+# Sin EMAIL_HOST, los correos se imprimen en la consola del servidor: sirve para desarrollar.
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+if EMAIL_HOST:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+    EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+    EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+    EMAIL_USE_TLS = True
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "AdMind <no-responder@admind.local>")
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

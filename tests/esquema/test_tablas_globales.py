@@ -19,6 +19,10 @@ TABLAS_GLOBALES = {
     "cuentas_usuario_user_permissions": "la crea Django por PermissionsMixin; AdMind no usa esos permisos",
     "conjuntos_conjunto": "el conjunto mismo",
     "cuentas_tokendesesion": "sesión de un usuario; el conjunto activo cambia dentro de la misma sesión",
+    # Las crea django-otp (HU-02). El segundo factor es de la cuenta, y la cuenta es global.
+    "otp_totp_totpdevice": "secreto TOTP de un usuario",
+    "otp_static_staticdevice": "grupo de códigos de respaldo de un usuario",
+    "otp_static_statictoken": "cada código de respaldo",
 }
 
 # Llevan conjunto_id, pero puede ser nulo.

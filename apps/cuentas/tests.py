@@ -166,7 +166,12 @@ def test_con_un_solo_conjunto_entra_directo(cliente, usuario):
 
     sesion = entrar(cliente)
 
-    assert sesion["conjunto_activo"] == {"id": str(torres.id), "nombre": "Torres del Río", "acento": "verde"}
+    assert sesion["conjunto_activo"] == {
+        "id": str(torres.id),
+        "nombre": "Torres del Río",
+        "acento": "verde",
+        "logo": None,
+    }
     assert set(sesion["permisos"]) == PERMISOS_POR_ROL[Rol.ADMINISTRACION]
 
 

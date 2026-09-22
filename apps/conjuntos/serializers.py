@@ -7,6 +7,11 @@ class ConjuntoResumenSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     nombre = serializers.CharField()
     acento = serializers.CharField()
+    # Huella del logo, o null sin logo: entonces la interfaz muestra solo el nombre (HU-21).
+    logo = serializers.SerializerMethodField()
+
+    def get_logo(self, conjunto):
+        return conjunto.logo_huella or None
 
 
 class ConjuntoListaSerializer(ConjuntoResumenSerializer):
@@ -33,3 +38,11 @@ class DatosDeConjuntoSerializer(serializers.Serializer):
 
     def validate_direccion(self, valor):
         return valor.strip()
+
+
+class AcentoSerializer(serializers.Serializer):
+    acento = serializers.ChoiceField(choices=Acento.choices)
+
+
+class LogoSerializer(serializers.Serializer):
+    archivo = serializers.FileField()

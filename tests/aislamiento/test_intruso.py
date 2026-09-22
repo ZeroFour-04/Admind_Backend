@@ -1,17 +1,22 @@
 """Prueba del intruso por endpoint y prueba transversal de rutas (maestro §5.4, HU-05, HU-26)."""
+import uuid
+
 import pytest
 from django.urls import URLResolver, get_resolver, reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework.views import APIView
 
+from apps.anuncios.models import Anuncio
 from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.comun.aislamiento.vistas import VistaDeConjunto
 from apps.conjuntos.models import Conjunto
 from apps.cuentas.models import TokenDeSesion, Usuario
+from apps.notificaciones.models import Notificacion
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
+from apps.unidades.models import Unidad
 from tests.aislamiento.models import Area
 
 pytestmark = pytest.mark.django_db
@@ -98,14 +103,66 @@ def activar_conjunto(otro_conjunto):
     return "post", reverse("conjunto-activar"), intacto
 
 
-DETALLES = {"pruebas-area-detalle": detalle_de_area, "usuario-detalle": detalle_de_usuario}
+def identidad_del_conjunto(otro_conjunto):
+    return reverse("conjunto-identidad"), str(otro_conjunto.pk)
+
+
+def logo_del_conjunto(otro_conjunto):
+    def intacto():
+        return Conjunto.objects.get(pk=otro_conjunto.pk).logo_huella == ""
+
+    return "put", reverse("conjunto-logo"), intacto
+
+
+def unidad_de(otro_conjunto):
+    with usar_conjunto(otro_conjunto.id):
+        return Unidad.objects.create(nombre=f"Torre 9 – {Unidad.objects.count() + 101}")
+
+
+def listado_de_unidades(otro_conjunto):
+    return reverse("unidades"), str(unidad_de(otro_conjunto).pk)
+
+
+def anuncio_de(otro_conjunto):
+    autor = usuario_de(otro_conjunto).persona
+    with usar_conjunto(otro_conjunto.id):
+        return Anuncio.objects.create(titulo="Corte de agua", cuerpo="Jueves", alcance="conjunto", autor=autor)
+
+
+def detalle_de_anuncio(otro_conjunto):
+    return reverse("anuncio-detalle", kwargs={"anuncio_id": anuncio_de(otro_conjunto).pk})
+
+
+def listado_de_anuncios(otro_conjunto):
+    return reverse("anuncios"), str(anuncio_de(otro_conjunto).pk)
+
+
+def listado_de_notificaciones(otro_conjunto):
+    """Un aviso del otro conjunto para la misma persona: tampoco aparece en su bandeja."""
+    intruso = Usuario.objects.get(correo="admin@torres.com").persona
+    with usar_conjunto(otro_conjunto.id):
+        notificacion = Notificacion.objects.create(
+            persona=intruso, titulo="Ajeno", cuerpo="", origen="anuncio", referencia=uuid.uuid4()
+        )
+    return reverse("notificaciones"), str(notificacion.pk)
+
+
+DETALLES = {
+    "pruebas-area-detalle": detalle_de_area,
+    "usuario-detalle": detalle_de_usuario,
+    "anuncio-detalle": detalle_de_anuncio,
+}
 LISTADOS = {
     "pruebas-areas": listado_de_areas,
     "usuarios": listado_de_usuarios,
     "conjunto-actual": resumen_del_conjunto,
+    "conjunto-identidad": identidad_del_conjunto,
+    "unidades": listado_de_unidades,
+    "anuncios": listado_de_anuncios,
+    "notificaciones": listado_de_notificaciones,
 }
 # Rutas de conjunto sin identificador ni listado: actúan sobre el conjunto activo.
-ACCIONES = {"conjunto-activar": activar_conjunto}
+ACCIONES = {"conjunto-activar": activar_conjunto, "conjunto-logo": logo_del_conjunto}
 RUTAS_SIN_CONJUNTO = {
     "iniciar-sesion",
     "cerrar-sesion",
@@ -113,6 +170,8 @@ RUTAS_SIN_CONJUNTO = {
     "conjunto-activo",
     # El Superusuario crea conjuntos sin tener uno activo (HU-03).
     "conjunto-crear",
+    # El selector muestra logos de conjuntos que no son el activo; se revisa el acceso a cada uno (HU-21).
+    "conjunto-logo-imagen",
     "recuperar-contrasena",
     "restablecer-contrasena",
     "dos-factores-configurar",

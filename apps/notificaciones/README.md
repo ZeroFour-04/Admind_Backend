@@ -10,6 +10,15 @@ El canal de notificaciones: un componente, dos salidas. Decide **por dónde** ll
 - El adaptador de WhatsApp, **declarado y sin implementar** (§3.4)
 - Credenciales del SMTP por variable de entorno, nunca en el repositorio
 
+## Qué hay hoy
+
+Construido el 2026-09-22 para HU-25, que es su primer consumidor.
+
+- `canal.notificar(aviso, persona_ids)`: deja el aviso en la bandeja (`Notificacion`) y, al confirmarse la transacción, manda un correo por persona. Solo a cuentas que pueden entrar; un fallo del correo no deshace el aviso
+- Un mismo hecho avisa una sola vez: `UNIQUE (persona, origen, referencia)` en la base
+- `GET /notificaciones/`: los avisos de quien pregunta en el conjunto activo, los 100 más recientes
+- No hay marca de leída ni adaptador de WhatsApp todavía
+
 ## Con qué se conecta
 
 - `apps/unidades/`: recibe los destinatarios ya resueltos

@@ -49,6 +49,9 @@ INSTALLED_APPS = [
     "apps.cuentas",
     "apps.conjuntos",
     "apps.permisos",
+    "apps.unidades",
+    "apps.notificaciones",
+    "apps.anuncios",
 ]
 AUTH_USER_MODEL = "cuentas.Usuario"
 

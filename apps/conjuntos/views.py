@@ -1,12 +1,23 @@
-"""Asistente de creación de conjuntos (HU-03). Cada vista valida, exige su permiso y llama al servicio."""
+"""Asistente de creación (HU-03) e identidad visual (HU-21) de los conjuntos.
+
+Cada vista valida, exige su permiso y llama al servicio.
+"""
+from django.http import HttpResponse
 from rest_framework import status
+from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.comun.aislamiento.vistas import VistaDeConjunto
 from apps.conjuntos import servicios
 from apps.conjuntos.models import Conjunto
-from apps.conjuntos.serializers import ConjuntoListaSerializer, DatosDeConjuntoSerializer
+from apps.conjuntos.serializers import (
+    AcentoSerializer,
+    ConjuntoListaSerializer,
+    ConjuntoResumenSerializer,
+    DatosDeConjuntoSerializer,
+    LogoSerializer,
+)
 from apps.cuentas import servicios as servicios_de_cuentas
 from apps.cuentas.serializers import estado_de_la_sesion
 from apps.permisos.servicios import tiene_permiso
@@ -83,3 +94,60 @@ class ActivarConjuntoView(VistaDeConjunto):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(resumen_del_asistente(request, conjunto))
+
+
+# Identidad visual (HU-21): el color, uno de los ocho del catálogo, y el logo.
+
+# El Superusuario también, como en el resto del asistente: configura el conjunto que está creando.
+PERMISOS_DE_IDENTIDAD = ("conjunto.branding", "conjunto.activar")
+
+
+class IdentidadDelConjuntoView(VistaDeConjunto):
+    def get(self, request):
+        exigir_permiso(request, *PERMISOS_DE_IDENTIDAD)
+        conjunto = Conjunto.objects.get(pk=request.auth.conjunto_activo_id)
+        return Response(ConjuntoResumenSerializer(conjunto).data)
+
+    def patch(self, request):
+        exigir_permiso(request, *PERMISOS_DE_IDENTIDAD)
+        datos = AcentoSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        conjunto = Conjunto.objects.get(pk=request.auth.conjunto_activo_id)
+        servicios.editar_datos(conjunto, acento=datos.validated_data["acento"])
+        return Response(ConjuntoResumenSerializer(conjunto).data)
+
+
+class LogoDelConjuntoView(VistaDeConjunto):
+    def put(self, request):
+        exigir_permiso(request, *PERMISOS_DE_IDENTIDAD)
+        datos = LogoSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        # Se lee un byte más del límite: basta para saber que se pasa, sin cargar un archivo enorme.
+        contenido = datos.validated_data["archivo"].read(servicios.TAMANO_MAXIMO_LOGO + 1)
+        conjunto = Conjunto.objects.get(pk=request.auth.conjunto_activo_id)
+        try:
+            servicios.guardar_logo(conjunto, contenido)
+        except servicios.LogoInvalido as error:
+            return Response({"archivo": [error.mensaje]}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(ConjuntoResumenSerializer(conjunto).data)
+
+    def delete(self, request):
+        exigir_permiso(request, *PERMISOS_DE_IDENTIDAD)
+        conjunto = Conjunto.objects.get(pk=request.auth.conjunto_activo_id)
+        servicios.quitar_logo(conjunto)
+        return Response(ConjuntoResumenSerializer(conjunto).data)
+
+
+class ImagenDelLogoView(APIView):
+    """La imagen del logo, pedida por su huella.
+
+    No es una VistaDeConjunto porque el selector muestra el logo de conjuntos que todavía no son
+    el activo. No recibe el conjunto: con la huella basta, y solo se entrega si es de un conjunto
+    donde la persona puede operar. Si no, 404, igual que si no existiera.
+    """
+
+    def get(self, request, huella):
+        logo = servicios.logo_por_huella(request.user.persona, huella)
+        if logo is None:
+            raise NotFound()
+        return HttpResponse(bytes(logo.contenido), content_type=logo.tipo)

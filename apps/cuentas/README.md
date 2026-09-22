@@ -13,6 +13,7 @@ Alcance: Núcleo (§3.1).
 - Creación de usuarios con un rol asignado en el conjunto activo
 - 2FA TOTP con `django-otp`, **obligatorio para todo usuario con algún permiso sensible** (`dos_factores.py`)
 - Permiso de DRF que exige el 2FA verificado a quien tenga permisos sensibles (`permisos.py`, §7.2 punto 4)
+- Comando solo para pruebas en local: `python manage.py crear_usuarios_prueba` crea un conjunto de prueba y un usuario por rol (`<rol>@example.com`), con la contraseña que se pide al ejecutarlo
 
 ## API
 
@@ -22,7 +23,7 @@ Todas las rutas exigen `Authorization: Token <token>`, salvo las marcadas *públ
 |---|---|---|---|
 | `POST` | `/auth/login/` | *Pública.* Inicia sesión con `correo` y `contrasena` | 200 con `token`, `vence_en`, `conjunto_activo`, `permisos` y `dos_factores` · 401 con un mensaje que no dice si el correo existe |
 | `POST` | `/auth/logout/` | *Sin 2FA.* Cierra la sesión | 204 |
-| `GET` | `/auth/conjuntos/` | Conjuntos donde puede operar: los de sus asignaciones vigentes; el Superusuario, todos los activos | 200 con `id`, `nombre`, `direccion`, `acento` |
+| `GET` | `/auth/conjuntos/` | Conjuntos donde puede operar: los de sus asignaciones vigentes; el Superusuario, todos los activos | 200 con `id`, `nombre`, `direccion`, `acento`, `logo` (huella o `null`) |
 | `POST` | `/auth/conjunto-activo/` | Elige el conjunto activo (`conjunto`) | 200 con el estado de la sesión · 404 si no puede operar ahí |
 | `GET` | `/auth/usuarios/` | Cuentas con algún rol en el conjunto activo. Exige `usuario.gestionar` | 200 con `roles` en el conjunto activo |
 | `POST` | `/auth/usuarios/` | Crea persona, cuenta y rol en el conjunto activo. Exige `usuario.gestionar` | 201 · 400 si el documento o el correo ya existen · 403 sin conjunto activo |

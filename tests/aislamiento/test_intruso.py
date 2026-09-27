@@ -1,6 +1,6 @@
 """Prueba del intruso por endpoint y prueba transversal de rutas (maestro §5.4, HU-05, HU-26)."""
 import uuid
-from datetime import time
+from datetime import time, timedelta
 
 import pytest
 from django.urls import URLResolver, get_resolver, reverse
@@ -20,6 +20,7 @@ from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
 from apps.reglas.models import Regla
+from apps.reservas.models import Solicitud
 from apps.unidades.models import TipoVinculo, Unidad, VinculoUnidad
 from tests.aislamiento.models import Area
 
@@ -252,6 +253,43 @@ def retirar_regla_en(otro_conjunto):
     return "post", reverse("regla-retirar", kwargs={"regla_id": regla.pk}), intacto
 
 
+def solicitud_de(otro_conjunto):
+    area = area_comun_de(otro_conjunto)
+    persona = usuario_de(otro_conjunto).persona
+    with usar_conjunto(otro_conjunto.id):
+        return Solicitud.objects.create(
+            area=area,
+            persona=persona,
+            fecha=timezone.localdate() + timedelta(days=1),
+            hora_inicio=time(8),
+            hora_fin=time(10),
+            bloqueo_vence_en=timezone.now() + timedelta(minutes=3),
+        )
+
+
+def franjas_de_area_ajena(otro_conjunto):
+    manana = timezone.localdate() + timedelta(days=1)
+    return f"{reverse('franjas')}?area={area_comun_de(otro_conjunto).pk}&fecha={manana}"
+
+
+def detalle_de_solicitud(otro_conjunto):
+    return reverse("solicitud-detalle", kwargs={"solicitud_id": solicitud_de(otro_conjunto).pk})
+
+
+def listado_de_solicitudes(otro_conjunto):
+    return reverse("solicitudes"), str(solicitud_de(otro_conjunto).pk)
+
+
+def liberar_solicitud_en(otro_conjunto):
+    solicitud = solicitud_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return Solicitud.objects.get(pk=solicitud.pk).estado == "EN_SOLICITUD"
+
+    return "post", reverse("solicitud-liberar", kwargs={"solicitud_id": solicitud.pk}), intacto
+
+
 def detalle_de_area_comun(otro_conjunto):
     return reverse("area-detalle", kwargs={"area_id": area_comun_de(otro_conjunto).pk})
 
@@ -277,6 +315,8 @@ DETALLES = {
     "area-detalle": detalle_de_area_comun,
     "unidad-detalle": detalle_de_unidad,
     "regla-detalle": detalle_de_regla,
+    "franjas": franjas_de_area_ajena,
+    "solicitud-detalle": detalle_de_solicitud,
 }
 LISTADOS = {
     "pruebas-areas": listado_de_areas,
@@ -288,6 +328,7 @@ LISTADOS = {
     "notificaciones": listado_de_notificaciones,
     "areas": listado_de_areas_comunes,
     "reglas": listado_de_reglas,
+    "solicitudes": listado_de_solicitudes,
 }
 # Rutas de conjunto sin identificador ni listado: actúan sobre el conjunto activo.
 ACCIONES = {
@@ -301,6 +342,7 @@ ACCIONES = {
     "persona-buscar": buscar_persona_en,
     "persona-vincular": vincular_persona_en,
     "regla-retirar": retirar_regla_en,
+    "solicitud-liberar": liberar_solicitud_en,
 }
 RUTAS_SIN_CONJUNTO = {
     "iniciar-sesion",

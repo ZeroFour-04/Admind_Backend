@@ -27,4 +27,5 @@ urlpatterns = [
     path("areas/", include("apps.areas.urls")),
     path("personas/", include("apps.personas.urls")),
     path("reglas/", include("apps.reglas.urls")),
+    path("reservas/", include("apps.reservas.urls")),
 ]

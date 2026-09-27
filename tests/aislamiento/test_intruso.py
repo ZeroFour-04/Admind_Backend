@@ -90,6 +90,26 @@ def detalle_de_usuario(otro_conjunto):
     return reverse("usuario-detalle", kwargs={"usuario_id": usuario_de(otro_conjunto).pk})
 
 
+def asignar_rol_en(otro_conjunto):
+    usuario = usuario_de(otro_conjunto)
+
+    def intacto():
+        return list(Asignacion.objects.filter(persona=usuario.persona).values_list("rol", flat=True)) == ["residente"]
+
+    return "post", reverse("usuario-roles", kwargs={"usuario_id": usuario.pk}), intacto
+
+
+def retirar_rol_en(otro_conjunto):
+    usuario = usuario_de(otro_conjunto)
+    asignacion = Asignacion.objects.get(persona=usuario.persona)
+
+    def intacto():
+        return Asignacion.objects.get(pk=asignacion.pk).vigencia_hasta is None
+
+    url = reverse("usuario-rol-retirar", kwargs={"usuario_id": usuario.pk, "asignacion_id": asignacion.pk})
+    return "post", url, intacto
+
+
 def listado_de_usuarios(otro_conjunto):
     return reverse("usuarios"), str(usuario_de(otro_conjunto).pk)
 
@@ -230,6 +250,8 @@ ACCIONES = {
     "area-desactivar": desactivar_area_comun,
     "unidad-vinculos": registrar_vinculo_en,
     "vinculo-cerrar": cerrar_vinculo_en,
+    "usuario-roles": asignar_rol_en,
+    "usuario-rol-retirar": retirar_rol_en,
 }
 RUTAS_SIN_CONJUNTO = {
     "iniciar-sesion",

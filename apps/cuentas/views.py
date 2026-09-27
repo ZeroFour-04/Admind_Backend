@@ -9,6 +9,7 @@ from apps.comun.aislamiento.vistas import VistaDeConjunto
 from apps.conjuntos.serializers import ConjuntoListaSerializer
 from apps.cuentas import dos_factores, servicios
 from apps.cuentas.serializers import (
+    AsignarRolSerializer,
     CodigoSerializer,
     CrearUsuarioSerializer,
     ElegirConjuntoSerializer,
@@ -18,6 +19,8 @@ from apps.cuentas.serializers import (
     UsuarioResumenSerializer,
     estado_de_la_sesion,
 )
+from apps.permisos import servicios as roles
+from apps.permisos.models import Asignacion
 from apps.permisos.servicios import conjuntos_disponibles
 from apps.permisos.views import exigir_permiso
 
@@ -106,6 +109,62 @@ class DetalleDeUsuarioView(VistaDeConjunto):
             # Sin más detalle: un 404 no confirma si la cuenta existe en otro conjunto (maestro §5.4).
             raise NotFound()
         return Response(UsuarioResumenSerializer(usuario).data)
+
+
+# Roles del usuario en el conjunto activo (HU-06)
+
+
+def usuario_del_conjunto(request, usuario_id):
+    """Un usuario de otro conjunto responde 404, como en el detalle."""
+    usuario = servicios.usuarios_del_conjunto(request.auth.conjunto_activo_id).filter(pk=usuario_id).first()
+    if usuario is None:
+        raise NotFound()
+    return usuario
+
+
+def usuario_actualizado(request, usuario):
+    """El usuario con sus roles vigentes de ahora. Sigue respondiendo aunque ya no le quede ninguno."""
+    usuario.persona.asignaciones_en_conjunto = list(
+        Asignacion.objects.vigentes().filter(persona=usuario.persona, conjunto_id=request.auth.conjunto_activo_id)
+    )
+    return Response(UsuarioResumenSerializer(usuario).data)
+
+
+class RolesDeUsuarioView(VistaDeConjunto):
+    def post(self, request, usuario_id):
+        exigir_permiso(request, "rol.asignar")
+        usuario = usuario_del_conjunto(request, usuario_id)
+        datos = AsignarRolSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        try:
+            roles.asignar_rol(
+                request.user.persona, usuario.persona, datos.validated_data["rol"], request.auth.conjunto_activo_id
+            )
+        except roles.RolYaAsignado:
+            return Response(
+                {"detail": "Esta persona ya tiene ese rol en el conjunto."}, status=status.HTTP_409_CONFLICT
+            )
+        return usuario_actualizado(request, usuario)
+
+
+class RetirarRolView(VistaDeConjunto):
+    def post(self, request, usuario_id, asignacion_id):
+        exigir_permiso(request, "rol.asignar")
+        usuario = usuario_del_conjunto(request, usuario_id)
+        asignacion = (
+            Asignacion.objects.vigentes()
+            .filter(pk=asignacion_id, persona=usuario.persona, conjunto_id=request.auth.conjunto_activo_id)
+            .first()
+        )
+        if asignacion is None:
+            raise NotFound()
+        try:
+            roles.retirar_rol(request.user.persona, asignacion, request.auth.conjunto_activo_id)
+        except roles.UltimaAdministracion:
+            return Response(
+                {"detail": "El conjunto no puede quedar sin Administración."}, status=status.HTTP_409_CONFLICT
+            )
+        return usuario_actualizado(request, usuario)
 
 
 # Recuperación de contraseña (HU-01)

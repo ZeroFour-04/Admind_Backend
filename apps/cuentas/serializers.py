@@ -91,6 +91,11 @@ class UsuarioResumenSerializer(serializers.Serializer):
         ]
 
 
+class AsignarRolSerializer(serializers.Serializer):
+    # Solo roles de conjunto del catálogo: no hay roles nuevos ni editables (HU-06).
+    rol = serializers.ChoiceField(choices=[choice for choice in Rol.choices if choice[0] in ROLES_DE_CONJUNTO])
+
+
 class SolicitarRecuperacionSerializer(serializers.Serializer):
     correo = serializers.EmailField()
 

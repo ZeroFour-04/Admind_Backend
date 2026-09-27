@@ -1,20 +1,25 @@
-"""Pruebas de HU-11: franjas y bloqueo exclusivo de 3 minutos.
+"""Pruebas de HU-11 (franjas y bloqueo de 3 minutos), HU-12 (avisos) y HU-13 (envío y reglas).
 
 La concurrencia (N residentes sobre la misma franja) va en `tests/concurrencia/test_bloqueo_de_franjas.py`.
 """
+import uuid
 from datetime import datetime, time, timedelta
 
 import pytest
 from django.utils import timezone
+from django.utils.formats import date_format
 from rest_framework.test import APIClient
 
 from apps.areas.models import Area, Clasificacion
+from apps.auditoria.models import Registro
 from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.conjuntos.models import Conjunto
 from apps.cuentas.models import TokenDeSesion, Usuario
+from apps.notificaciones.models import Notificacion
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
+from apps.reglas import mora
 from apps.reglas.models import Regla
 from apps.reservas.models import Solicitud
 from apps.reservas.servicios import avisos
@@ -24,6 +29,7 @@ pytestmark = pytest.mark.django_db
 
 CONTRASENA = "una-clave-larga-2026"
 MANANA = timezone.localdate() + timedelta(days=1)
+MANANA_EN_LETRAS = date_format(MANANA, r"l j \d\e F \d\e Y").lower()
 
 
 def crear_usuario(correo, nombres, rol, conjunto):
@@ -280,3 +286,146 @@ def test_el_detalle_trae_los_avisos_y_no_impiden_nada(pedro, salon):
 
     assert "avisos" in manana_temprano
     assert pedro.get(f"/reservas/solicitudes/{manana_temprano['id']}/").json()["avisos"] == manana_temprano["avisos"]
+
+
+# Envío de la solicitud y motor de reglas (HU-13)
+
+
+@pytest.fixture
+def administracion(torres):
+    """Dos personas con Administración vigente y una con Consejo, que no debe recibir el aviso."""
+    return [
+        crear_usuario("admin1@torres.com", "Andrés", Rol.ADMINISTRACION, torres),
+        crear_usuario("admin2@torres.com", "Sofía", Rol.ADMINISTRACION, torres),
+        crear_usuario("consejo@torres.com", "Carlos", Rol.CONSEJO, torres),
+    ]
+
+
+def regla(torres, area, tipo, parametros, autor):
+    with usar_conjunto(torres.id):
+        return Regla.objects.create(area=area, tipo=tipo, parametros=parametros, creada_por=autor)
+
+
+def enviar(cliente, solicitud_id, unidad, asistentes=20, **extra):
+    datos = {"unidad": str(unidad.id), "motivo": "Cumpleaños", "asistentes": asistentes, **extra}
+    return cliente.post(f"/reservas/solicitudes/{solicitud_id}/enviar/", datos, format="json")
+
+
+def test_una_solicitud_valida_queda_apartada_y_se_avisa_a_la_administracion(
+    pedro, torres, salon, apartamentos, administracion
+):
+    en_tramite = tomar(pedro, salon).json()
+
+    respuesta = enviar(pedro, en_tramite["id"], apartamentos[0])
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["estado"] == "APARTADA" and respuesta.json()["enviada_en"]
+    with usar_conjunto(torres.id):
+        avisados = sorted(n.persona.nombres for n in Notificacion.objects.filter(referencia=en_tramite["id"]))
+        aviso = Notificacion.objects.filter(referencia=en_tramite["id"]).first()
+    assert avisados == ["Andrés", "Sofía"]
+    assert aviso.titulo == "Nueva solicitud de reserva"
+    assert f"Salón comunal el {MANANA_EN_LETRAS}" in aviso.cuerpo
+
+
+def test_si_incumple_tres_reglas_ve_los_tres_motivos_y_se_libera_el_bloqueo(
+    pedro, lucia, torres, salon, apartamentos, administracion
+):
+    autor = administracion[0]
+    regla(torres, salon, "AFORO", {"maximo": 25}, autor)
+    regla(torres, salon, "ANTICIPACION_MINIMA", {"horas": 24 * 30}, autor)
+    regla(torres, salon, "DIAS_NO_RESERVABLES", {"dias_semana": [MANANA.weekday()], "fechas": []}, autor)
+    en_tramite = tomar(pedro, salon).json()
+
+    respuesta = enviar(pedro, en_tramite["id"], apartamentos[0], asistentes=40)
+
+    assert respuesta.status_code == 400
+    assert respuesta.json()["detail"] == "La solicitud no cumple las reglas del conjunto."
+    assert sorted(respuesta.json()["motivos"]) == [
+        "Esta área admite máximo 25 asistentes y la solicitud dice 40.",
+        "Esta área no se reserva ese día.",
+        "Esta área se solicita con al menos 720 horas de anticipación.",
+    ]
+    liberada = solicitud(torres, en_tramite["id"])
+    assert (liberada.estado, liberada.motivo_liberacion) == ("LIBERADA", "reglas")
+    assert franjas(lucia, salon)["08:00"] == "libre"
+
+
+def test_sin_vivir_en_la_unidad_elegida_la_alfa_lo_impide(pedro, torres, salon, apartamentos):
+    """También cierra el criterio 5 de HU-08: quien no reside no reserva a nombre de esa unidad."""
+    en_tramite = tomar(pedro, salon).json()
+
+    respuesta = enviar(pedro, en_tramite["id"], apartamentos[1])
+
+    assert respuesta.status_code == 400
+    assert respuesta.json()["motivos"] == [
+        "No vives en el apartamento elegido: solo quien vive ahí puede reservar a su nombre."
+    ]
+
+
+def test_una_unidad_en_mora_no_pide_un_area_no_esencial_pero_si_una_esencial(
+    monkeypatch, pedro, torres, salon, apartamentos, administracion
+):
+    """Cierra el criterio de mora de HU-09."""
+    monkeypatch.setattr(mora, "unidad_en_mora", lambda unidad: True)
+    esencial = crear_area(torres, "Salón de portería", clasificacion=Clasificacion.COMUN_ESENCIAL)
+    regla(torres, salon, "REQUIERE_PAZ_Y_SALVO", {}, administracion[0])
+    # Sobre un área esencial la API no deja crearla; se crea directo para probar que no aplica.
+    regla(torres, esencial, "REQUIERE_PAZ_Y_SALVO", {}, administracion[0])
+
+    rechazada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0])
+    aceptada = enviar(pedro, tomar(pedro, esencial).json()["id"], apartamentos[0])
+
+    assert rechazada.json()["motivos"] == ["El apartamento no está a paz y salvo con la administración."]
+    assert aceptada.json()["estado"] == "APARTADA"
+
+
+def test_queda_registrado_que_reglas_se_evaluaron_y_con_que_resultado(
+    pedro, torres, salon, apartamentos, administracion
+):
+    aforo = regla(torres, salon, "AFORO", {"maximo": 25}, administracion[0])
+    en_tramite = tomar(pedro, salon).json()
+
+    respuesta = enviar(pedro, en_tramite["id"], apartamentos[0])
+
+    evaluacion = respuesta.json()["evaluacion"]
+    assert [(r["tipo"], r["cumple"]) for r in evaluacion] == [
+        ("RESIDE", True), ("NO_EN_EL_PASADO", True), ("AREA_DISPONIBLE", True), ("AFORO", True),
+    ]
+    assert (evaluacion[3]["id"], evaluacion[3]["parametros"]) == (str(aforo.id), {"maximo": 25})
+    assert respuesta.json()["evaluada_en"]
+    with usar_conjunto(torres.id):
+        registro = Registro.objects.get(accion="reserva.enviar")
+    assert registro.entidad_id == uuid.UUID(en_tramite["id"])
+    assert len(registro.detalle["evaluacion"]) == 4
+
+
+def test_un_envio_que_salta_la_interfaz_se_evalua_igual(pedro, torres, salon, apartamentos, administracion):
+    """Criterio de HU-12: el POST directo a la API pasa por las mismas reglas."""
+    regla(torres, salon, "AFORO", {"maximo": 25}, administracion[0])
+
+    respuesta = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0], asistentes=40)
+
+    assert respuesta.status_code == 400
+
+
+def test_enviar_vencida_ajena_o_dos_veces(pedro, lucia, torres, salon, apartamentos, administracion):
+    vencida = tomar(pedro, salon).json()
+    with usar_conjunto(torres.id):
+        Solicitud.objects.filter(pk=vencida["id"]).update(bloqueo_vence_en=timezone.now() - timedelta(seconds=1))
+    respuesta = enviar(pedro, vencida["id"], apartamentos[0])
+    assert respuesta.status_code == 409
+    assert respuesta.json()["detail"] == "Se venció el tiempo. La franja quedó libre."
+    assert solicitud(torres, vencida["id"]).estado == "EXPIRADA"
+
+    otra = tomar(pedro, salon, "12:00").json()
+    assert enviar(lucia, otra["id"], apartamentos[1]).status_code == 404
+    assert enviar(pedro, otra["id"], apartamentos[0]).status_code == 200
+    assert enviar(pedro, otra["id"], apartamentos[0]).status_code == 409
+
+
+def test_sin_motivo_o_con_cero_asistentes_no_se_envia(pedro, salon, apartamentos):
+    en_tramite = tomar(pedro, salon).json()
+
+    assert "motivo" in enviar(pedro, en_tramite["id"], apartamentos[0], motivo="").json()
+    assert "asistentes" in enviar(pedro, en_tramite["id"], apartamentos[0], asistentes=0).json()

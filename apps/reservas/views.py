@@ -10,6 +10,7 @@ from apps.reservas import servicios
 from apps.reservas.serializers import (
     ConsultarFranjasSerializer,
     DetalleDeSolicitudSerializer,
+    EnviarSolicitudSerializer,
     FranjaSerializer,
     SolicitudSerializer,
     TomarBloqueoSerializer,
@@ -111,4 +112,38 @@ class LiberarSolicitudView(VistaDeConjunto):
             servicios.liberar(request.user.persona, solicitud)
         except servicios.NoEstaEnTramite:
             return Response(MENSAJE_NO_EN_TRAMITE, status=status.HTTP_409_CONFLICT)
+        return Response(DetalleDeSolicitudSerializer(solicitud).data)
+
+
+class EnviarSolicitudView(VistaDeConjunto):
+    def post(self, request, solicitud_id):
+        """Envía la solicitud: se evalúa contra todas las reglas, pase o no por la pantalla de confirmación."""
+        exigir_permiso(request, "reserva.solicitar")
+        datos = EnviarSolicitudSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        campos = datos.validated_data
+        try:
+            solicitud = servicios.enviar(
+                request.user.persona,
+                solicitud_id,
+                unidad_id=campos["unidad"],
+                motivo=campos["motivo"],
+                asistentes=campos["asistentes"],
+                observaciones=campos["observaciones"],
+            )
+        except servicios.SolicitudNoEncontrada:
+            raise NotFound()
+        except servicios.UnidadNoEncontrada:
+            return Response({"unidad": ["Esa unidad no existe en este conjunto."]}, status=status.HTTP_400_BAD_REQUEST)
+        except servicios.BloqueoVencido:
+            return Response(
+                {"detail": "Se venció el tiempo. La franja quedó libre."}, status=status.HTTP_409_CONFLICT
+            )
+        except servicios.NoEstaEnTramite:
+            return Response(MENSAJE_NO_EN_TRAMITE, status=status.HTTP_409_CONFLICT)
+        except servicios.IncumpleReglas as incumple:
+            return Response(
+                {"detail": "La solicitud no cumple las reglas del conjunto.", "motivos": incumple.motivos},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(DetalleDeSolicitudSerializer(solicitud).data)

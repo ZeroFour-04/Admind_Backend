@@ -290,6 +290,16 @@ def liberar_solicitud_en(otro_conjunto):
     return "post", reverse("solicitud-liberar", kwargs={"solicitud_id": solicitud.pk}), intacto
 
 
+def enviar_solicitud_en(otro_conjunto):
+    solicitud = solicitud_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return Solicitud.objects.get(pk=solicitud.pk).estado == "EN_SOLICITUD"
+
+    return "post", reverse("solicitud-enviar", kwargs={"solicitud_id": solicitud.pk}), intacto
+
+
 def detalle_de_area_comun(otro_conjunto):
     return reverse("area-detalle", kwargs={"area_id": area_comun_de(otro_conjunto).pk})
 
@@ -343,6 +353,7 @@ ACCIONES = {
     "persona-vincular": vincular_persona_en,
     "regla-retirar": retirar_regla_en,
     "solicitud-liberar": liberar_solicitud_en,
+    "solicitud-enviar": enviar_solicitud_en,
 }
 RUTAS_SIN_CONJUNTO = {
     "iniciar-sesion",

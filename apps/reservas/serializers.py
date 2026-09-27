@@ -21,6 +21,13 @@ class TomarBloqueoSerializer(serializers.Serializer):
     hora_inicio = serializers.TimeField()
 
 
+class EnviarSolicitudSerializer(serializers.Serializer):
+    unidad = serializers.UUIDField()
+    motivo = serializers.CharField(max_length=200)
+    asistentes = serializers.IntegerField(min_value=1)
+    observaciones = serializers.CharField(max_length=1000, required=False, allow_blank=True, default="")
+
+
 class SolicitudSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     area = serializers.SerializerMethodField()
@@ -38,6 +45,9 @@ class SolicitudSerializer(serializers.Serializer):
     observaciones = serializers.CharField()
     creada_en = serializers.DateTimeField()
     enviada_en = serializers.DateTimeField()
+    # Qué reglas se evaluaron y con qué resultado (HU-13, plan P10).
+    evaluacion = serializers.JSONField()
+    evaluada_en = serializers.DateTimeField()
 
     def get_area(self, solicitud):
         return {"id": solicitud.area_id, "nombre": solicitud.area.nombre}

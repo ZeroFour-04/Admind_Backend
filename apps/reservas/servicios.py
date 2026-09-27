@@ -9,13 +9,21 @@ hasta HU-33 (Sprint 6), y sin esto los Sprints 3 y 4 no se podrían demostrar.
 """
 from datetime import datetime, timedelta
 
+from django.db import transaction
 from django.utils import timezone
+from django.utils.formats import date_format
 
 from apps.areas.servicios import franjas_del_dia
+from apps.auditoria import servicios as auditoria
 from apps.comun.bloqueo import bloqueo
+from apps.notificaciones.canal import Aviso, notificar
+from apps.permisos.catalogo import Rol
+from apps.permisos.models import Asignacion
 from apps.reglas.catalogo import TipoDeRegla
+from apps.reglas.evaluador import evaluar
 from apps.reglas.servicios import reglas_vigentes
 from apps.reservas.models import BLOQUEANTES, EstadoSolicitud, MotivoLiberacion, Solicitud
+from apps.unidades.models import Unidad
 from apps.unidades.servicios import unidades_para_solicitar
 
 # Constante del sistema, no regla beta (maestro §5.1, plan P11).
@@ -55,6 +63,26 @@ class YaTienesUnBloqueo(Exception):
 
 class NoEstaEnTramite(Exception):
     """La solicitud ya no está `EN_SOLICITUD`: se envió, venció o se liberó."""
+
+
+class SolicitudNoEncontrada(Exception):
+    """No existe en el conjunto activo o es de otra persona."""
+
+
+class UnidadNoEncontrada(Exception):
+    """La unidad elegida no existe en el conjunto activo."""
+
+
+class BloqueoVencido(Exception):
+    """Se acabaron los 3 minutos antes de enviar. La solicitud quedó `EXPIRADA`."""
+
+
+class IncumpleReglas(Exception):
+    """La solicitud no cumple una o más reglas. Trae todos los motivos, no solo el primero."""
+
+    def __init__(self, motivos):
+        super().__init__(motivos)
+        self.motivos = motivos
 
 
 def inicio_de(fecha, hora):
@@ -183,3 +211,78 @@ def segundos_restantes(solicitud):
     if solicitud.estado != EstadoSolicitud.EN_SOLICITUD:
         return 0
     return max(0, int((solicitud.bloqueo_vence_en - timezone.now()).total_seconds()))
+
+
+def dia_en_letras(solicitud):
+    return date_format(solicitud.fecha, r"l j \d\e F \d\e Y").lower()
+
+
+def avisar_a_la_administracion(solicitud):
+    """La solicitud apartada queda en manos de quien tiene Administración vigente en el conjunto."""
+    administradores = Asignacion.objects.vigentes().filter(conjunto_id=solicitud.conjunto_id, rol=Rol.ADMINISTRACION)
+    cuerpo = (
+        f"{solicitud.area.nombre} el {dia_en_letras(solicitud)}, de {solicitud.hora_inicio:%H:%M} a "
+        f"{solicitud.hora_fin:%H:%M}, para {solicitud.asistentes} asistentes. Motivo: {solicitud.motivo}."
+    )
+    aviso = Aviso("Nueva solicitud de reserva", cuerpo, origen="reserva", referencia=solicitud.id)
+    notificar(aviso, list(administradores.values_list("persona_id", flat=True).distinct()))
+
+
+def enviar(persona, solicitud_id, *, unidad_id, motivo, asistentes, observaciones=""):
+    """Evalúa la solicitud contra todas las reglas y la aparta, o la libera con todos los motivos (HU-13).
+
+    El cambio de estado se guarda antes de lanzar cualquier error: si se lanzara dentro de la
+    transacción, el rollback desharía la expiración o la liberación.
+    """
+    expirar_vencidas()
+    error = None
+    with transaction.atomic():
+        solicitud = Solicitud.objects.select_for_update().select_related("area").filter(pk=solicitud_id).first()
+        if solicitud is None or solicitud.persona_id != persona.id:
+            raise SolicitudNoEncontrada()
+        if solicitud.estado == EstadoSolicitud.EXPIRADA:
+            raise BloqueoVencido()
+        if solicitud.estado != EstadoSolicitud.EN_SOLICITUD:
+            raise NoEstaEnTramite()
+        if solicitud.bloqueo_vence_en <= timezone.now():
+            # Venció entre la expiración de arriba y el bloqueo de la fila.
+            solicitud.estado = EstadoSolicitud.EXPIRADA
+            solicitud.save(update_fields=["estado"])
+            error = BloqueoVencido()
+        else:
+            unidad = Unidad.objects.filter(pk=unidad_id).first()
+            if unidad is None:
+                raise UnidadNoEncontrada()
+            solicitud.unidad = unidad
+            solicitud.motivo = motivo
+            solicitud.asistentes = asistentes
+            solicitud.observaciones = observaciones
+            resultados = evaluar(solicitud)
+            solicitud.evaluacion = [resultado.como_dict() for resultado in resultados]
+            solicitud.evaluada_en = timezone.now()
+            motivos = [resultado.motivo for resultado in resultados if not resultado.cumple]
+            if motivos:
+                # El bloqueo se suelta: la franja queda libre para otro (plan D2 a).
+                solicitud.estado = EstadoSolicitud.LIBERADA
+                solicitud.motivo_liberacion = MotivoLiberacion.REGLAS
+                accion = "reserva.liberar_por_reglas"
+                error = IncumpleReglas(motivos)
+            else:
+                solicitud.estado = EstadoSolicitud.APARTADA
+                solicitud.enviada_en = timezone.now()
+                accion = "reserva.enviar"
+            solicitud.save()
+            auditoria.registrar(
+                persona,
+                accion,
+                "Solicitud",
+                solicitud.id,
+                antes={"estado": EstadoSolicitud.EN_SOLICITUD},
+                despues={"estado": solicitud.estado, "unidad": unidad.id, "asistentes": asistentes},
+                detalle={"evaluacion": solicitud.evaluacion},
+            )
+            if not motivos:
+                avisar_a_la_administracion(solicitud)
+    if error:
+        raise error
+    return solicitud

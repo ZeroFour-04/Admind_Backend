@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 from rest_framework.views import APIView
 
 from apps.anuncios.models import Anuncio
+from apps.auditoria.models import Registro
 from apps.areas.models import Area as AreaComun
 from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.comun.aislamiento.vistas import VistaDeConjunto
@@ -108,6 +109,23 @@ def retirar_rol_en(otro_conjunto):
 
     url = reverse("usuario-rol-retirar", kwargs={"usuario_id": usuario.pk, "asignacion_id": asignacion.pk})
     return "post", url, intacto
+
+
+def nada_escrito_en(otro_conjunto, persona):
+    """Ni una asignación nueva para la persona ni un registro de auditoría en el otro conjunto."""
+    with usar_conjunto(otro_conjunto.id):
+        sin_registros = not Registro.objects.exists()
+    return sin_registros and Asignacion.objects.filter(persona=persona).count() == 1
+
+
+def buscar_persona_en(otro_conjunto):
+    persona = usuario_de(otro_conjunto).persona
+    return "post", reverse("persona-buscar"), lambda: nada_escrito_en(otro_conjunto, persona)
+
+
+def vincular_persona_en(otro_conjunto):
+    persona = usuario_de(otro_conjunto).persona
+    return "post", reverse("persona-vincular"), lambda: nada_escrito_en(otro_conjunto, persona)
 
 
 def listado_de_usuarios(otro_conjunto):
@@ -252,6 +270,8 @@ ACCIONES = {
     "vinculo-cerrar": cerrar_vinculo_en,
     "usuario-roles": asignar_rol_en,
     "usuario-rol-retirar": retirar_rol_en,
+    "persona-buscar": buscar_persona_en,
+    "persona-vincular": vincular_persona_en,
 }
 RUTAS_SIN_CONJUNTO = {
     "iniciar-sesion",

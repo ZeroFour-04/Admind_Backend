@@ -1,7 +1,4 @@
-"""Pruebas de HU-10: reglas beta de reserva, su catálogo cerrado y su versionado.
-
-El AND sin precedencias (dos reglas incumplidas → dos motivos) se prueba con el evaluador, en HU-13.
-"""
+"""Pruebas de HU-10 (reglas beta, catálogo cerrado y versionado) y del evaluador de HU-13."""
 from datetime import time, timedelta
 
 import pytest
@@ -17,7 +14,11 @@ from apps.cuentas.models import TokenDeSesion, Usuario
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
+from apps.reglas import mora
+from apps.reglas.evaluador import EVALUADOR_POR_TIPO, evaluar
 from apps.reglas.models import Regla
+from apps.reservas.models import Solicitud
+from apps.unidades.models import Unidad
 
 pytestmark = pytest.mark.django_db
 
@@ -236,3 +237,88 @@ def test_sin_regla_configurar_no_se_crea_ni_se_ve(torres, salon):
 
     assert residente.get("/reglas/").status_code == 403
     assert crear(residente, salon, "AFORO", {"maximo": 25}).status_code == 403
+
+
+# Evaluador (HU-13): una prueba que cumple y una que no por cada tipo del catálogo.
+
+EN_DIEZ_DIAS = HOY() + timedelta(days=10)
+DIA = EN_DIEZ_DIAS.weekday()
+OTRO_DIA = (DIA + 1) % 7
+
+
+@pytest.fixture
+def solicitud(torres, salon, laura):
+    """Una solicitud en memoria: 20 asistentes, en diez días, de 8:00 a 12:00, a nombre del 101."""
+    with usar_conjunto(torres.id):
+        unidad = Unidad.objects.create(nombre="Torre 1 – 101")
+    return Solicitud(
+        conjunto=torres, area=salon, unidad=unidad, persona=laura, fecha=EN_DIEZ_DIAS,
+        hora_inicio=time(8), hora_fin=time(12), asistentes=20,
+    )
+
+
+@pytest.mark.parametrize(
+    ("tipo", "cumple", "no_cumple"),
+    [
+        ("ANTICIPACION_MINIMA", {"horas": 24}, {"horas": 24 * 20}),
+        ("ANTICIPACION_MAXIMA", {"dias": 30}, {"dias": 5}),
+        ("AFORO", {"maximo": 25}, {"maximo": 10}),
+        ("FRANJA_HORARIA", {"dias_semana": [DIA], "desde": "08:00", "hasta": "22:00"},
+         {"dias_semana": [OTRO_DIA], "desde": "08:00", "hasta": "22:00"}),
+        ("DIAS_NO_RESERVABLES", {"dias_semana": [OTRO_DIA], "fechas": []},
+         {"dias_semana": [], "fechas": [EN_DIEZ_DIAS.isoformat()]}),
+    ],
+)
+def test_cada_tipo_cumple_o_no_segun_sus_parametros(torres, solicitud, tipo, cumple, no_cumple):
+    evaluar_tipo = EVALUADOR_POR_TIPO[tipo]
+
+    with usar_conjunto(torres.id):
+        assert evaluar_tipo(solicitud, cumple) == ""
+        assert evaluar_tipo(solicitud, no_cumple) != ""
+
+
+def test_el_cupo_por_unidad_cuenta_las_apartadas_de_la_ventana(torres, solicitud, laura):
+    with usar_conjunto(torres.id):
+        assert EVALUADOR_POR_TIPO["CUPO_POR_UNIDAD"](solicitud, {"reservas": 1, "dias": 30}) == ""
+        Solicitud.objects.create(
+            area=solicitud.area, unidad=solicitud.unidad, persona=laura, fecha=EN_DIEZ_DIAS - timedelta(days=3),
+            hora_inicio=time(8), hora_fin=time(12), estado="APARTADA", bloqueo_vence_en=timezone.now(),
+        )
+
+        motivo = EVALUADOR_POR_TIPO["CUPO_POR_UNIDAD"](solicitud, {"reservas": 1, "dias": 30})
+        fuera_de_la_ventana = EVALUADOR_POR_TIPO["CUPO_POR_UNIDAD"](solicitud, {"reservas": 1, "dias": 2})
+
+    assert motivo == "Este apartamento ya tiene 1 reservas de esta área en 30 días; el máximo es 1."
+    assert fuera_de_la_ventana == ""
+
+
+def test_paz_y_salvo_solo_restringe_areas_no_esenciales(monkeypatch, torres, solicitud):
+    evaluar_tipo = EVALUADOR_POR_TIPO["REQUIERE_PAZ_Y_SALVO"]
+    assert evaluar_tipo(solicitud, {}) == ""
+
+    monkeypatch.setattr(mora, "unidad_en_mora", lambda unidad: True)
+
+    assert evaluar_tipo(solicitud, {}) == "El apartamento no está a paz y salvo con la administración."
+    solicitud.area.clasificacion = Clasificacion.COMUN_ESENCIAL
+    assert evaluar_tipo(solicitud, {}) == ""
+
+
+def test_el_aforo_se_explica_en_la_voz_de_la_interfaz(solicitud):
+    solicitud.asistentes = 40
+
+    assert EVALUADOR_POR_TIPO["AFORO"](solicitud, {"maximo": 25}) == (
+        "Esta área admite máximo 25 asistentes y la solicitud dice 40."
+    )
+
+
+def test_el_evaluador_no_se_detiene_en_la_primera_falla(torres, solicitud, laura, salon):
+    """El AND sin precedencias de HU-10: dos reglas incumplidas son dos motivos."""
+    solicitud.asistentes = 40
+    with usar_conjunto(torres.id):
+        Regla.objects.create(area=salon, tipo="AFORO", parametros={"maximo": 25}, creada_por=laura)
+        Regla.objects.create(area=salon, tipo="ANTICIPACION_MAXIMA", parametros={"dias": 5}, creada_por=laura)
+        resultados = evaluar(solicitud)
+
+    fallas = [resultado.clave for resultado in resultados if not resultado.cumple]
+    assert sorted(fallas) == ["AFORO", "ANTICIPACION_MAXIMA", "RESIDE"]
+    assert [resultado.clave for resultado in resultados[:3]] == ["RESIDE", "NO_EN_EL_PASADO", "AREA_DISPONIBLE"]

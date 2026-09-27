@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     "apps.notificaciones",
     "apps.anuncios",
     "apps.auditoria",
+    "apps.areas",
 ]
 AUTH_USER_MODEL = "cuentas.Usuario"
 

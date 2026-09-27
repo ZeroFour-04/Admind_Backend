@@ -50,9 +50,13 @@ class SolicitudSerializer(serializers.Serializer):
 
 
 class DetalleDeSolicitudSerializer(SolicitudSerializer):
-    """Con las unidades a cuyo nombre puede solicitar, mientras está en trámite."""
+    """Con las unidades a cuyo nombre puede solicitar y los avisos del panel, mientras está en trámite."""
 
     unidades_para_solicitar = serializers.SerializerMethodField()
+    avisos = serializers.SerializerMethodField()
+
+    def get_avisos(self, solicitud):
+        return servicios.avisos(solicitud)
 
     def get_unidades_para_solicitar(self, solicitud):
         if solicitud.estado != "EN_SOLICITUD":

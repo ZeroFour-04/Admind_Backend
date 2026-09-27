@@ -2,7 +2,7 @@
 
 La concurrencia (N residentes sobre la misma franja) va en `tests/concurrencia/test_bloqueo_de_franjas.py`.
 """
-from datetime import time, timedelta
+from datetime import datetime, time, timedelta
 
 import pytest
 from django.utils import timezone
@@ -15,7 +15,9 @@ from apps.cuentas.models import TokenDeSesion, Usuario
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
+from apps.reglas.models import Regla
 from apps.reservas.models import Solicitud
+from apps.reservas.servicios import avisos
 from apps.unidades.models import TipoVinculo, Unidad, VinculoUnidad
 
 pytestmark = pytest.mark.django_db
@@ -218,3 +220,63 @@ def test_sin_reserva_solicitar_no_se_toma_el_bloqueo(torres, salon):
 
     assert tomar(vigilancia, salon).status_code == 403
     assert franjas(vigilancia, salon)["08:00"] == "libre"
+
+
+# Avisos del panel de confirmación (HU-12)
+
+
+def en_tramite(torres, area, persona, inicio, **extra):
+    """Una solicitud EN_SOLICITUD que empieza en ese momento, creada directo en la base."""
+    inicio = timezone.localtime(inicio)
+    with usar_conjunto(torres.id):
+        return Solicitud.objects.create(
+            area=area, persona=persona, fecha=inicio.date(), hora_inicio=inicio.time().replace(microsecond=0),
+            hora_fin=time.max, bloqueo_vence_en=timezone.now() + timedelta(minutes=3), **extra,
+        )
+
+
+def avisos_de(torres, solicitud):
+    with usar_conjunto(torres.id):
+        return avisos(solicitud)
+
+
+@pytest.fixture
+def ana(torres):
+    return crear_usuario("ana@correo.com", "Ana", Rol.RESIDENTE, torres)
+
+
+def test_se_avisa_si_la_franja_empieza_en_menos_de_24_horas(torres, salon, ana):
+    pronto = en_tramite(torres, salon, ana, timezone.now() + timedelta(hours=2))
+    lejos = en_tramite(torres, crear_area(torres, "Piscina"), crear_usuario("b@c.com", "Beto", Rol.RESIDENTE, torres),
+                       timezone.now() + timedelta(days=3))
+
+    assert avisos_de(torres, pronto) == ["menos_de_24h"]
+    assert avisos_de(torres, lejos) == []
+
+
+def test_se_avisa_si_la_fecha_es_el_ultimo_dia_de_la_anticipacion_maxima(torres, salon, ana):
+    with usar_conjunto(torres.id):
+        Regla.objects.create(area=salon, tipo="ANTICIPACION_MAXIMA", parametros={"dias": 30}, creada_por=ana)
+    ultimo_dia = timezone.make_aware(datetime.combine(timezone.localdate() + timedelta(days=30), time(10)))
+
+    solicitud = en_tramite(torres, salon, ana, ultimo_dia)
+
+    assert avisos_de(torres, solicitud) == ["limite_de_anticipacion"]
+
+
+def test_se_avisa_si_ya_tiene_otra_solicitud_apartada_o_reservada(torres, salon, ana, apartamentos):
+    piscina = crear_area(torres, "Piscina")
+    en_tramite(torres, piscina, ana, timezone.now() + timedelta(days=5), estado="APARTADA", unidad=apartamentos[0])
+    with usar_conjunto(torres.id):
+        Solicitud.objects.filter(persona=ana).update(bloqueo_vence_en=timezone.now())
+
+    solicitud = en_tramite(torres, salon, ana, timezone.now() + timedelta(days=3))
+
+    assert avisos_de(torres, solicitud) == ["otra_solicitud"]
+
+
+def test_el_detalle_trae_los_avisos_y_no_impiden_nada(pedro, salon):
+    manana_temprano = tomar(pedro, salon).json()
+
+    assert "avisos" in manana_temprano
+    assert pedro.get(f"/reservas/solicitudes/{manana_temprano['id']}/").json()["avisos"] == manana_temprano["avisos"]

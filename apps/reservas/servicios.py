@@ -13,6 +13,8 @@ from django.utils import timezone
 
 from apps.areas.servicios import franjas_del_dia
 from apps.comun.bloqueo import bloqueo
+from apps.reglas.catalogo import TipoDeRegla
+from apps.reglas.servicios import reglas_vigentes
 from apps.reservas.models import BLOQUEANTES, EstadoSolicitud, MotivoLiberacion, Solicitud
 from apps.unidades.servicios import unidades_para_solicitar
 
@@ -150,6 +152,30 @@ def solicitudes_de(persona):
 def detalle(persona, solicitud_id):
     """La solicitud si es de la persona; si no, None."""
     return solicitudes_de(persona).filter(pk=solicitud_id).first()
+
+
+def avisos(solicitud):
+    """Lo que el panel de confirmación resalta sin impedir el envío (HU-12, plan D9 a).
+
+    «Alta demanda» llega con PB-24 (Sprint 4).
+    """
+    if solicitud.estado != EstadoSolicitud.EN_SOLICITUD:
+        return []
+    resultado = []
+    if inicio_de(solicitud.fecha, solicitud.hora_inicio) - timezone.now() < timedelta(hours=24):
+        resultado.append("menos_de_24h")
+    hoy = timezone.localdate()
+    maximas = reglas_vigentes(solicitud.area, hoy).filter(tipo=TipoDeRegla.ANTICIPACION_MAXIMA)
+    if any(solicitud.fecha == hoy + timedelta(days=regla.parametros["dias"]) for regla in maximas):
+        resultado.append("limite_de_anticipacion")
+    otras = Solicitud.objects.filter(
+        persona_id=solicitud.persona_id,
+        estado__in=[EstadoSolicitud.APARTADA, EstadoSolicitud.RESERVADA],
+        fecha__gte=hoy,
+    ).exclude(pk=solicitud.pk)
+    if otras.exists():
+        resultado.append("otra_solicitud")
+    return resultado
 
 
 def segundos_restantes(solicitud):

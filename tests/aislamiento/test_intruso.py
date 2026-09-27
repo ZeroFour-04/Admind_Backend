@@ -18,7 +18,7 @@ from apps.notificaciones.models import Notificacion
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
-from apps.unidades.models import Unidad
+from apps.unidades.models import TipoVinculo, Unidad, VinculoUnidad
 from tests.aislamiento.models import Area
 
 pytestmark = pytest.mark.django_db
@@ -125,6 +125,34 @@ def listado_de_unidades(otro_conjunto):
     return reverse("unidades"), str(unidad_de(otro_conjunto).pk)
 
 
+def detalle_de_unidad(otro_conjunto):
+    return reverse("unidad-detalle", kwargs={"unidad_id": unidad_de(otro_conjunto).pk})
+
+
+def registrar_vinculo_en(otro_conjunto):
+    unidad = unidad_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return not VinculoUnidad.objects.filter(unidad=unidad).exists()
+
+    return "post", reverse("unidad-vinculos", kwargs={"unidad_id": unidad.pk}), intacto
+
+
+def cerrar_vinculo_en(otro_conjunto):
+    unidad = unidad_de(otro_conjunto)
+    persona = usuario_de(otro_conjunto).persona
+    with usar_conjunto(otro_conjunto.id):
+        vinculo = VinculoUnidad.objects.create(persona=persona, unidad=unidad, tipo=TipoVinculo.PROPIETARIO, reside=True)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return VinculoUnidad.objects.get(pk=vinculo.pk).vigencia_hasta is None
+
+    url = reverse("vinculo-cerrar", kwargs={"unidad_id": unidad.pk, "vinculo_id": vinculo.pk})
+    return "post", url, intacto
+
+
 def anuncio_de(otro_conjunto):
     autor = usuario_de(otro_conjunto).persona
     with usar_conjunto(otro_conjunto.id):
@@ -183,6 +211,7 @@ DETALLES = {
     "usuario-detalle": detalle_de_usuario,
     "anuncio-detalle": detalle_de_anuncio,
     "area-detalle": detalle_de_area_comun,
+    "unidad-detalle": detalle_de_unidad,
 }
 LISTADOS = {
     "pruebas-areas": listado_de_areas,
@@ -199,6 +228,8 @@ ACCIONES = {
     "conjunto-activar": activar_conjunto,
     "conjunto-logo": logo_del_conjunto,
     "area-desactivar": desactivar_area_comun,
+    "unidad-vinculos": registrar_vinculo_en,
+    "vinculo-cerrar": cerrar_vinculo_en,
 }
 RUTAS_SIN_CONJUNTO = {
     "iniciar-sesion",

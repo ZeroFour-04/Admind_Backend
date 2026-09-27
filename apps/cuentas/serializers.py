@@ -68,6 +68,9 @@ class UsuarioResumenSerializer(serializers.Serializer):
     telefono = serializers.CharField(source="persona.telefono")
     activo = serializers.BooleanField(source="persona.activo")
     roles = serializers.SerializerMethodField()
+    # La Persona y cada asignación: los usan los vínculos de unidad (HU-08) y los roles (HU-06).
+    persona = serializers.UUIDField(source="persona.id")
+    asignaciones = serializers.SerializerMethodField()
 
     def get_nombre(self, usuario):
         return str(usuario.persona)
@@ -75,6 +78,17 @@ class UsuarioResumenSerializer(serializers.Serializer):
     def get_roles(self, usuario):
         """Sus roles en el conjunto activo; los de otros conjuntos no se muestran."""
         return [asignacion.get_rol_display() for asignacion in usuario.persona.asignaciones_en_conjunto]
+
+    def get_asignaciones(self, usuario):
+        return [
+            {
+                "id": asignacion.id,
+                "rol": asignacion.rol,
+                "nombre": asignacion.get_rol_display(),
+                "desde": asignacion.vigencia_desde,
+            }
+            for asignacion in usuario.persona.asignaciones_en_conjunto
+        ]
 
 
 class SolicitarRecuperacionSerializer(serializers.Serializer):

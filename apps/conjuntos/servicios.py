@@ -14,6 +14,7 @@ from apps.conjuntos.models import Conjunto, LogoDeConjunto
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.permisos.servicios import conjuntos_disponibles, es_superusuario
+from apps.reglas.models import Regla
 
 TAMANO_MAXIMO_LOGO = 512 * 1024  # bytes
 
@@ -90,9 +91,10 @@ def administradores(conjunto):
 def requisitos_para_operar(conjunto):
     """Lo que el maestro §3.1 exige antes de dejar operativo un conjunto.
 
-    Reglamento y reglas beta todavía no tienen módulo (HU-33, HU-10). Mientras no existan cuentan
-    como no cumplidos, así que ningún conjunto puede quedar operativo: el invariante se mantiene
-    aunque el asistente esté incompleto. Las áreas se cumplen con al menos una activa (HU-09).
+    El reglamento todavía no tiene módulo (HU-33). Mientras no exista cuenta como no cumplido, así
+    que ningún conjunto puede quedar operativo: el invariante se mantiene aunque el asistente esté
+    incompleto. Las áreas se cumplen con al menos una activa (HU-09) y las reglas beta, con al
+    menos una vigente (HU-10).
     """
     return [
         Requisito(
@@ -107,7 +109,7 @@ def requisitos_para_operar(conjunto):
         ),
         Requisito("areas", "Catálogo de áreas comunes", Area.objects.filter(activo=True).exists()),
         Requisito("reglamento", "Reglamento cargado", False, disponible=False),
-        Requisito("reglas_beta", "Reglas beta de reserva", False, disponible=False),
+        Requisito("reglas_beta", "Reglas beta de reserva", Regla.objects.vigentes().exists()),
     ]
 
 

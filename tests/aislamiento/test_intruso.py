@@ -19,6 +19,7 @@ from apps.notificaciones.models import Notificacion
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
+from apps.reglas.models import Regla
 from apps.unidades.models import TipoVinculo, Unidad, VinculoUnidad
 from tests.aislamiento.models import Area
 
@@ -226,6 +227,31 @@ def area_comun_de(otro_conjunto):
         )
 
 
+def regla_de(otro_conjunto):
+    area = area_comun_de(otro_conjunto)
+    autor = usuario_de(otro_conjunto).persona
+    with usar_conjunto(otro_conjunto.id):
+        return Regla.objects.create(area=area, tipo="AFORO", parametros={"maximo": 25}, creada_por=autor)
+
+
+def detalle_de_regla(otro_conjunto):
+    return reverse("regla-detalle", kwargs={"regla_id": regla_de(otro_conjunto).pk})
+
+
+def listado_de_reglas(otro_conjunto):
+    return reverse("reglas"), str(regla_de(otro_conjunto).pk)
+
+
+def retirar_regla_en(otro_conjunto):
+    regla = regla_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return Regla.objects.get(pk=regla.pk).vigencia_hasta is None
+
+    return "post", reverse("regla-retirar", kwargs={"regla_id": regla.pk}), intacto
+
+
 def detalle_de_area_comun(otro_conjunto):
     return reverse("area-detalle", kwargs={"area_id": area_comun_de(otro_conjunto).pk})
 
@@ -250,6 +276,7 @@ DETALLES = {
     "anuncio-detalle": detalle_de_anuncio,
     "area-detalle": detalle_de_area_comun,
     "unidad-detalle": detalle_de_unidad,
+    "regla-detalle": detalle_de_regla,
 }
 LISTADOS = {
     "pruebas-areas": listado_de_areas,
@@ -260,6 +287,7 @@ LISTADOS = {
     "anuncios": listado_de_anuncios,
     "notificaciones": listado_de_notificaciones,
     "areas": listado_de_areas_comunes,
+    "reglas": listado_de_reglas,
 }
 # Rutas de conjunto sin identificador ni listado: actúan sobre el conjunto activo.
 ACCIONES = {
@@ -272,6 +300,7 @@ ACCIONES = {
     "usuario-rol-retirar": retirar_rol_en,
     "persona-buscar": buscar_persona_en,
     "persona-vincular": vincular_persona_en,
+    "regla-retirar": retirar_regla_en,
 }
 RUTAS_SIN_CONJUNTO = {
     "iniciar-sesion",

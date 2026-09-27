@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     "apps.auditoria",
     "apps.areas",
     "apps.reglas",
+    "apps.reservas",
 ]
 AUTH_USER_MODEL = "cuentas.Usuario"
 

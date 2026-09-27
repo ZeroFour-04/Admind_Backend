@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 
 from django.db import transaction
 
+from apps.areas.models import Area
 from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.conjuntos.models import Conjunto, LogoDeConjunto
 from apps.permisos.catalogo import Rol
@@ -89,9 +90,9 @@ def administradores(conjunto):
 def requisitos_para_operar(conjunto):
     """Lo que el maestro §3.1 exige antes de dejar operativo un conjunto.
 
-    Áreas, reglamento y reglas beta todavía no tienen módulo (HU-09, HU-33, HU-10). Mientras no
-    existan cuentan como no cumplidos, así que ningún conjunto puede quedar operativo: el
-    invariante se mantiene aunque el asistente esté incompleto.
+    Reglamento y reglas beta todavía no tienen módulo (HU-33, HU-10). Mientras no existan cuentan
+    como no cumplidos, así que ningún conjunto puede quedar operativo: el invariante se mantiene
+    aunque el asistente esté incompleto. Las áreas se cumplen con al menos una activa (HU-09).
     """
     return [
         Requisito(
@@ -104,7 +105,7 @@ def requisitos_para_operar(conjunto):
             "Al menos una persona con rol Administración",
             administradores(conjunto).exists(),
         ),
-        Requisito("areas", "Catálogo de áreas comunes", False, disponible=False),
+        Requisito("areas", "Catálogo de áreas comunes", Area.objects.filter(activo=True).exists()),
         Requisito("reglamento", "Reglamento cargado", False, disponible=False),
         Requisito("reglas_beta", "Reglas beta de reserva", False, disponible=False),
     ]

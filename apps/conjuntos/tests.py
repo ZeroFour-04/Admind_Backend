@@ -166,7 +166,7 @@ def test_resumen_muestra_datos_administradores_y_requisitos(admin):
         "clave": "areas",
         "descripcion": "Catálogo de áreas comunes",
         "cumplido": False,
-        "disponible": False,
+        "disponible": True,
     }
 
 

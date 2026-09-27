@@ -1,5 +1,6 @@
 """Prueba del intruso por endpoint y prueba transversal de rutas (maestro §5.4, HU-05, HU-26)."""
 import uuid
+from datetime import time
 
 import pytest
 from django.urls import URLResolver, get_resolver, reverse
@@ -8,6 +9,7 @@ from rest_framework.test import APIClient
 from rest_framework.views import APIView
 
 from apps.anuncios.models import Anuncio
+from apps.areas.models import Area as AreaComun
 from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.comun.aislamiento.vistas import VistaDeConjunto
 from apps.conjuntos.models import Conjunto
@@ -147,10 +149,40 @@ def listado_de_notificaciones(otro_conjunto):
     return reverse("notificaciones"), str(notificacion.pk)
 
 
+def area_comun_de(otro_conjunto):
+    with usar_conjunto(otro_conjunto.id):
+        return AreaComun.objects.create(
+            nombre=f"Salón {AreaComun.objects.count() + 1}",
+            clasificacion="comun",
+            hora_apertura=time(8),
+            hora_cierre=time(20),
+            duracion_franja_minutos=120,
+        )
+
+
+def detalle_de_area_comun(otro_conjunto):
+    return reverse("area-detalle", kwargs={"area_id": area_comun_de(otro_conjunto).pk})
+
+
+def listado_de_areas_comunes(otro_conjunto):
+    return reverse("areas"), str(area_comun_de(otro_conjunto).pk)
+
+
+def desactivar_area_comun(otro_conjunto):
+    area = area_comun_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return AreaComun.objects.get(pk=area.pk).activo
+
+    return "post", reverse("area-desactivar", kwargs={"area_id": area.pk}), intacto
+
+
 DETALLES = {
     "pruebas-area-detalle": detalle_de_area,
     "usuario-detalle": detalle_de_usuario,
     "anuncio-detalle": detalle_de_anuncio,
+    "area-detalle": detalle_de_area_comun,
 }
 LISTADOS = {
     "pruebas-areas": listado_de_areas,
@@ -160,9 +192,14 @@ LISTADOS = {
     "unidades": listado_de_unidades,
     "anuncios": listado_de_anuncios,
     "notificaciones": listado_de_notificaciones,
+    "areas": listado_de_areas_comunes,
 }
 # Rutas de conjunto sin identificador ni listado: actúan sobre el conjunto activo.
-ACCIONES = {"conjunto-activar": activar_conjunto, "conjunto-logo": logo_del_conjunto}
+ACCIONES = {
+    "conjunto-activar": activar_conjunto,
+    "conjunto-logo": logo_del_conjunto,
+    "area-desactivar": desactivar_area_comun,
+}
 RUTAS_SIN_CONJUNTO = {
     "iniciar-sesion",
     "cerrar-sesion",

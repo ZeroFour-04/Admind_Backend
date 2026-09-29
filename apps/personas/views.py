@@ -7,7 +7,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
 from apps.comun.aislamiento.vistas import VistaDeConjunto
-from apps.permisos.servicios import RolYaAsignado
+from apps.permisos.servicios import MENSAJE_YA_TIENE_ROL, RolYaAsignado
 from apps.permisos.views import exigir_permiso
 from apps.personas import servicios
 from apps.personas.serializers import BuscarPersonaSerializer, VincularPersonaSerializer
@@ -45,7 +45,5 @@ class VincularPersonaView(VistaDeConjunto):
         except servicios.PersonaNoEncontrada:
             raise NotFound()
         except RolYaAsignado:
-            return Response(
-                {"detail": "Esta persona ya tiene ese rol en el conjunto."}, status=status.HTTP_409_CONFLICT
-            )
+            return Response({"detail": MENSAJE_YA_TIENE_ROL}, status=status.HTTP_409_CONFLICT)
         return Response(servicios.resumen(persona, conjunto_id), status=status.HTTP_201_CREATED)

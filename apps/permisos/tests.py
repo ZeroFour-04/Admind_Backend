@@ -97,17 +97,17 @@ def test_rol_fuera_del_catalogo_se_rechaza(persona, conjunto):
         Asignacion.objects.create(persona=persona, rol="operador", conjunto=conjunto)
 
 
-def test_misma_asignacion_vigente_no_se_repite(persona, conjunto):
+def test_una_persona_tiene_un_solo_rol_vigente_por_conjunto(persona, conjunto):
     Asignacion.objects.create(persona=persona, rol=Rol.RESIDENTE, conjunto=conjunto)
 
-    with pytest.raises(IntegrityError, match="asignacion_vigente_unica"), transaction.atomic():
-        Asignacion.objects.create(persona=persona, rol=Rol.RESIDENTE, conjunto=conjunto)
+    with pytest.raises(IntegrityError, match="asignacion_un_rol_por_conjunto"), transaction.atomic():
+        Asignacion.objects.create(persona=persona, rol=Rol.SECRETARIA, conjunto=conjunto)
 
 
 def test_superusuario_vigente_no_se_repite_aunque_no_tenga_conjunto(persona):
     Asignacion.objects.create(persona=persona, rol=Rol.SUPERUSUARIO)
 
-    with pytest.raises(IntegrityError, match="asignacion_vigente_unica"), transaction.atomic():
+    with pytest.raises(IntegrityError, match="asignacion_un_rol_por_conjunto"), transaction.atomic():
         Asignacion.objects.create(persona=persona, rol=Rol.SUPERUSUARIO)
 
 
@@ -165,12 +165,10 @@ def test_asignacion_que_empieza_manana_todavia_no_esta_vigente(persona, conjunto
     assert not Asignacion.objects.vigentes().exists()
 
 
-def test_permisos_efectivos_son_la_union_de_los_roles_en_el_conjunto(persona, conjunto):
-    Asignacion.objects.create(persona=persona, rol=Rol.CONSEJO, conjunto=conjunto)
-    Asignacion.objects.create(persona=persona, rol=Rol.RESIDENTE, conjunto=conjunto)
+def test_permisos_efectivos_son_los_de_su_rol_en_el_conjunto(persona, conjunto):
+    Asignacion.objects.create(persona=persona, rol=Rol.SECRETARIA, conjunto=conjunto)
 
-    esperados = PERMISOS_POR_ROL[Rol.CONSEJO] | PERMISOS_POR_ROL[Rol.RESIDENTE]
-    assert permisos_efectivos(persona, conjunto.id) == esperados
+    assert permisos_efectivos(persona, conjunto.id) == PERMISOS_POR_ROL[Rol.SECRETARIA]
 
 
 def test_rol_de_un_conjunto_no_da_permisos_en_otro(persona, conjunto):

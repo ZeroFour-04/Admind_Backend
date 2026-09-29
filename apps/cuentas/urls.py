@@ -2,6 +2,7 @@ from django.urls import path
 
 from apps.cuentas.views import (
     ActivarDosFactoresView,
+    CambiarRolView,
     CerrarSesionView,
     ConfigurarDosFactoresView,
     ConjuntoActivoView,
@@ -28,6 +29,11 @@ urlpatterns = [
     path("usuarios/<uuid:usuario_id>/", DetalleDeUsuarioView.as_view(), name="usuario-detalle"),
     path("usuarios/<uuid:usuario_id>/roles/", RolesDeUsuarioView.as_view(), name="usuario-roles"),
     path("usuarios/<uuid:usuario_id>/eliminar/", RetirarUsuarioDelConjuntoView.as_view(), name="usuario-eliminar"),
+    path(
+        "usuarios/<uuid:usuario_id>/roles/<uuid:asignacion_id>/cambiar/",
+        CambiarRolView.as_view(),
+        name="usuario-rol-cambiar",
+    ),
     path(
         "usuarios/<uuid:usuario_id>/roles/<uuid:asignacion_id>/retirar/",
         RetirarRolView.as_view(),

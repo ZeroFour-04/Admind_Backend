@@ -1,8 +1,9 @@
 """Qué puede hacer una persona y dónde. Los permisos se calculan, no se guardan.
 
-También asigna y retira roles del catálogo (HU-06): solo cierra vigencias, nunca borra.
+También asigna, cambia y retira roles del catálogo (HU-06): solo cierra vigencias, nunca borra.
+Una persona tiene un solo rol vigente por conjunto.
 """
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -17,7 +18,14 @@ class RolFueraDelCatalogo(Exception):
 
 
 class RolYaAsignado(Exception):
-    """La persona ya tiene ese rol vigente en el conjunto."""
+    """La persona ya tiene un rol vigente en el conjunto: se cambia, no se suma otro."""
+
+
+MENSAJE_YA_TIENE_ROL = "Esta persona ya tiene un rol en el conjunto. Cámbialo en lugar de asignarle otro."
+
+
+class MismoRol(Exception):
+    """Se pidió cambiar el rol por el que ya tiene."""
 
 
 class UltimaAdministracion(Exception):
@@ -89,14 +97,25 @@ def datos_de_la_asignacion(asignacion):
     }
 
 
+def crear_asignacion(persona, rol, conjunto_id):
+    """Si otra petición le dio un rol en el mismo instante, la restricción de la base lo impide."""
+    try:
+        with transaction.atomic():
+            return Asignacion.objects.create(persona=persona, rol=rol, conjunto_id=conjunto_id)
+    except IntegrityError as error:
+        if "asignacion_un_rol_por_conjunto" in str(error):
+            raise RolYaAsignado() from error
+        raise
+
+
 def asignar_rol(actor, persona, rol, conjunto_id):
-    """Suma un rol del catálogo a la persona en el conjunto. Sus permisos son la unión de todos sus roles."""
+    """Le da a la persona su rol en el conjunto. Si ya tiene uno, se cambia con `cambiar_rol`."""
     if rol not in ROLES_DE_CONJUNTO:
         raise RolFueraDelCatalogo()
-    if Asignacion.objects.vigentes().filter(persona=persona, rol=rol, conjunto_id=conjunto_id).exists():
+    if Asignacion.objects.vigentes().filter(persona=persona, conjunto_id=conjunto_id).exists():
         raise RolYaAsignado()
     with transaction.atomic():
-        asignacion = Asignacion.objects.create(persona=persona, rol=rol, conjunto_id=conjunto_id)
+        asignacion = crear_asignacion(persona, rol, conjunto_id)
         auditoria.registrar(
             actor, "rol.asignar", "Asignacion", asignacion.id, despues=datos_de_la_asignacion(asignacion)
         )
@@ -125,6 +144,41 @@ def retirar_rol(actor, asignacion, conjunto_id):
             actor, "rol.retirar", "Asignacion", asignacion.id, antes=antes, despues=datos_de_la_asignacion(asignacion)
         )
     return asignacion
+
+
+def cambiar_rol(actor, asignacion, rol, conjunto_id):
+    """Reemplaza su rol en el conjunto por otro del catálogo: cierra el actual hoy y abre el nuevo.
+
+    Las dos cosas van en la misma transacción: la persona nunca queda con dos roles ni sin ninguno.
+    Dejar de ser Administración pasa por la misma comprobación que retirar ese rol.
+    """
+    if rol not in ROLES_DE_CONJUNTO:
+        raise RolFueraDelCatalogo()
+    if rol == asignacion.rol:
+        raise MismoRol()
+    with transaction.atomic():
+        if asignacion.rol == Rol.ADMINISTRACION:
+            administradores = list(
+                Asignacion.objects.vigentes()
+                .filter(conjunto_id=conjunto_id, rol=Rol.ADMINISTRACION)
+                .select_for_update()
+            )
+            if len(administradores) <= 1:
+                raise UltimaAdministracion()
+        antes = datos_de_la_asignacion(asignacion)
+        asignacion.vigencia_hasta = timezone.localdate()
+        asignacion.save(update_fields=["vigencia_hasta"])
+        nueva = crear_asignacion(asignacion.persona, rol, conjunto_id)
+        auditoria.registrar(
+            actor,
+            "rol.cambiar",
+            "Asignacion",
+            nueva.id,
+            antes=antes,
+            despues=datos_de_la_asignacion(nueva),
+            detalle={"asignacion_anterior": asignacion.id},
+        )
+    return nueva
 
 
 def retirar_roles_del_conjunto(actor, persona, conjunto_id):

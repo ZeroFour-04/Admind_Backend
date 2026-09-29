@@ -1,4 +1,6 @@
-"""Pruebas de HU-06: asignar y retirar roles del catálogo en el conjunto activo.
+"""Pruebas de HU-06: asignar, cambiar y retirar roles del catálogo en el conjunto activo.
+
+Una persona tiene un solo rol vigente por conjunto: para darle otro se cambia el que tiene.
 
 Dos criterios ya tienen prueba en `apps/permisos/tests.py`: un rol del conjunto A no da permisos
 en B (`test_rol_de_un_conjunto_no_da_permisos_en_otro`); el Superusuario, en cambio, tiene todos
@@ -8,6 +10,7 @@ import threading
 
 import pytest
 from django.db import connection
+from django.utils import timezone
 from django.urls import URLResolver, get_resolver
 from rest_framework.test import APIClient
 
@@ -70,6 +73,10 @@ def asignar(cliente, usuario, rol):
     return cliente.post(f"/auth/usuarios/{usuario.id}/roles/", {"rol": rol}, format="json")
 
 
+def cambiar(cliente, usuario, asignacion, rol):
+    return cliente.post(f"/auth/usuarios/{usuario.id}/roles/{asignacion.id}/cambiar/", {"rol": rol}, format="json")
+
+
 def retirar(cliente, usuario, asignacion):
     return cliente.post(f"/auth/usuarios/{usuario.id}/roles/{asignacion.id}/retirar/")
 
@@ -81,13 +88,55 @@ def asignacion_de(usuario, rol):
 # Criterios de aceptación
 
 
-def test_asignar_un_rol_suma_los_permisos_de_todos_sus_roles(admin, vecino, torres):
-    respuesta = asignar(admin, vecino, "consejo")
+def test_quien_ya_tiene_un_rol_en_el_conjunto_no_recibe_otro(admin, vecino, torres):
+    respuesta = asignar(admin, vecino, "secretaria")
+
+    assert respuesta.status_code == 409
+    assert respuesta.json()["detail"] == servicios.MENSAJE_YA_TIENE_ROL
+    vigentes = Asignacion.objects.vigentes().filter(persona=vecino.persona).values_list("rol", flat=True)
+    assert list(vigentes) == ["residente"]
+    assert permisos_efectivos(vecino.persona, torres.id) == PERMISOS_POR_ROL[Rol.RESIDENTE]
+
+
+def test_cambiar_el_rol_cierra_el_anterior_y_deja_solo_el_nuevo(admin, vecino, torres):
+    anterior = asignacion_de(vecino, Rol.RESIDENTE)
+
+    respuesta = cambiar(admin, vecino, anterior, "secretaria")
 
     assert respuesta.status_code == 200
-    assert sorted(a["rol"] for a in respuesta.json()["asignaciones"]) == ["consejo", "residente"]
-    esperados = PERMISOS_POR_ROL[Rol.RESIDENTE] | PERMISOS_POR_ROL[Rol.CONSEJO]
-    assert permisos_efectivos(vecino.persona, torres.id) == esperados
+    assert [a["rol"] for a in respuesta.json()["asignaciones"]] == ["secretaria"]
+    anterior.refresh_from_db()
+    assert anterior.vigencia_hasta == timezone.localdate()
+    assert Asignacion.objects.vigentes().filter(persona=vecino.persona, conjunto=torres).count() == 1
+    assert permisos_efectivos(vecino.persona, torres.id) == PERMISOS_POR_ROL[Rol.SECRETARIA]
+
+
+def test_cambiar_al_mismo_rol_responde_400(admin, vecino):
+    respuesta = cambiar(admin, vecino, asignacion_de(vecino, Rol.RESIDENTE), "residente")
+
+    assert respuesta.status_code == 400
+    assert Asignacion.objects.filter(persona=vecino.persona).count() == 1
+
+
+def test_cambiar_el_rol_al_ultimo_de_administracion_falla(admin, admin_usuario):
+    unica = asignacion_de(admin_usuario, Rol.ADMINISTRACION)
+
+    respuesta = cambiar(admin, admin_usuario, unica, "residente")
+
+    assert respuesta.status_code == 409
+    assert respuesta.json()["detail"] == "El conjunto no puede quedar sin Administración."
+    unica.refresh_from_db()
+    assert unica.vigencia_hasta is None
+    assert Asignacion.objects.filter(persona=admin_usuario.persona).count() == 1
+
+
+def test_con_dos_administradores_uno_puede_cambiar_de_rol(admin, admin_usuario, torres):
+    otra = crear_usuario("admin2@torres.com", Rol.ADMINISTRACION, torres, "Sofía")
+
+    respuesta = cambiar(admin, otra, asignacion_de(otra, Rol.ADMINISTRACION), "secretaria")
+
+    assert respuesta.status_code == 200
+    assert [a["rol"] for a in respuesta.json()["asignaciones"]] == ["secretaria"]
 
 
 def nombres_de_rutas(patrones):
@@ -101,8 +150,8 @@ def nombres_de_rutas(patrones):
 def test_no_existe_crear_ni_editar_roles(admin, vecino):
     de_roles = {nombre for nombre in nombres_de_rutas(get_resolver().url_patterns) if {"rol", "roles"} & set(nombre.split("-"))}
 
-    # Solo asignar un rol del catálogo a un usuario y retirarlo; ninguna ruta crea ni edita roles.
-    assert de_roles == {"usuario-roles", "usuario-rol-retirar"}
+    # Solo asignar, cambiar y retirar el rol del catálogo de un usuario; ninguna ruta crea ni edita roles.
+    assert de_roles == {"usuario-roles", "usuario-rol-cambiar", "usuario-rol-retirar"}
     assert asignar(admin, vecino, "operador").status_code == 400
     assert asignar(admin, vecino, "superusuario").status_code == 400
     assert not Asignacion.objects.filter(persona=vecino.persona, rol__in=["operador", "superusuario"]).exists()
@@ -129,30 +178,35 @@ def test_con_dos_administradores_se_retira_uno(admin, admin_usuario, torres):
     assert retirar(admin, admin_usuario, asignacion_de(admin_usuario, Rol.ADMINISTRACION)).status_code == 409
 
 
-def test_asignar_y_retirar_quedan_en_la_auditoria(admin, admin_usuario, vecino, torres):
-    asignar(admin, vecino, "consejo")
-    retirar(admin, vecino, asignacion_de(vecino, Rol.CONSEJO))
-
+def test_asignar_cambiar_y_retirar_quedan_en_la_auditoria(admin_usuario, torres):
+    nueva = Persona.objects.create(
+        tipo_documento=TipoDocumento.CC, numero_documento="77777", nombres="Marta", apellidos="Ruiz"
+    )
     with usar_conjunto(torres.id):
+        asignada = servicios.asignar_rol(admin_usuario.persona, nueva, Rol.RESIDENTE, torres.id)
+        cambiada = servicios.cambiar_rol(admin_usuario.persona, asignada, Rol.SECRETARIA, torres.id)
+        servicios.retirar_rol(admin_usuario.persona, cambiada, torres.id)
         registros = list(Registro.objects.order_by("creado_en"))
+
     assert [(r.accion, r.actor_id) for r in registros] == [
         ("rol.asignar", admin_usuario.persona_id),
+        ("rol.cambiar", admin_usuario.persona_id),
         ("rol.retirar", admin_usuario.persona_id),
     ]
-    assert registros[0].despues["rol"] == "consejo"
-    assert registros[1].antes["vigencia_hasta"] is None
-    assert registros[1].despues["vigencia_hasta"] is not None
+    assert registros[0].despues["rol"] == "residente"
+    assert (registros[1].antes["rol"], registros[1].despues["rol"]) == ("residente", "secretaria")
+    assert registros[1].detalle["asignacion_anterior"] == str(asignada.id)
+    assert registros[2].antes["vigencia_hasta"] is None
+    assert registros[2].despues["vigencia_hasta"] is not None
 
 
 # Reglas de la asignación
 
 
 def test_retirar_quita_los_permisos_de_inmediato(admin, vecino, torres):
-    asignar(admin, vecino, "consejo")
+    retirar(admin, vecino, asignacion_de(vecino, Rol.RESIDENTE))
 
-    retirar(admin, vecino, asignacion_de(vecino, Rol.CONSEJO))
-
-    assert permisos_efectivos(vecino.persona, torres.id) == PERMISOS_POR_ROL[Rol.RESIDENTE]
+    assert permisos_efectivos(vecino.persona, torres.id) == set()
 
 
 def test_asignar_un_rol_ya_vigente_responde_409(admin, vecino):
@@ -165,7 +219,9 @@ def test_asignar_un_rol_ya_vigente_responde_409(admin, vecino):
 def test_sin_rol_asignar_no_se_asigna_ni_se_retira(torres, vecino, admin_usuario):
     residente = cliente_para("vecino@torres.com")
 
-    assert asignar(residente, vecino, "consejo").status_code == 403
+    assert asignar(residente, vecino, "secretaria").status_code == 403
+    administracion = asignacion_de(admin_usuario, Rol.ADMINISTRACION)
+    assert cambiar(residente, admin_usuario, administracion, "residente").status_code == 403
     assert retirar(residente, admin_usuario, asignacion_de(admin_usuario, Rol.ADMINISTRACION)).status_code == 403
 
 
@@ -206,4 +262,38 @@ def test_dos_retiros_a_la_vez_no_dejan_el_conjunto_sin_administracion():
         hilo.join()
 
     assert sorted(resultados) == ["retirado", "ultima"]
+    assert Asignacion.objects.vigentes().filter(conjunto=torres, rol=Rol.ADMINISTRACION).count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_dos_cambios_a_la_vez_no_dejan_el_conjunto_sin_administracion():
+    torres = Conjunto.objects.create(nombre="Torres del Río")
+    uno = crear_usuario("a1@torres.com", Rol.ADMINISTRACION, torres, "Uno")
+    dos = crear_usuario("a2@torres.com", Rol.ADMINISTRACION, torres, "Dos")
+    asignaciones = [asignacion_de(uno, Rol.ADMINISTRACION), asignacion_de(dos, Rol.ADMINISTRACION)]
+    barrera = threading.Barrier(2)
+    resultados = []
+
+    def cambiar_en_paralelo(asignacion, actor):
+        try:
+            with usar_conjunto(torres.id):
+                barrera.wait()
+                try:
+                    servicios.cambiar_rol(actor, asignacion, Rol.RESIDENTE, torres.id)
+                    resultados.append("cambiado")
+                except servicios.UltimaAdministracion:
+                    resultados.append("ultima")
+        finally:
+            connection.close()
+
+    hilos = [
+        threading.Thread(target=cambiar_en_paralelo, args=(asignaciones[0], dos.persona)),
+        threading.Thread(target=cambiar_en_paralelo, args=(asignaciones[1], uno.persona)),
+    ]
+    for hilo in hilos:
+        hilo.start()
+    for hilo in hilos:
+        hilo.join()
+
+    assert sorted(resultados) == ["cambiado", "ultima"]
     assert Asignacion.objects.vigentes().filter(conjunto=torres, rol=Rol.ADMINISTRACION).count() == 1

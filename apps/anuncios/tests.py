@@ -143,13 +143,13 @@ def test_editar_un_anuncio_publicado_no_vuelve_a_avisar(
 
 def test_con_anuncio_publicar_pero_sin_anuncio_dirigir_no_publica_a_una_vivienda(monkeypatch, torres, viviendas):
     # Ningún rol del catálogo tiene uno sin el otro: se simula para probar que van separados.
-    monkeypatch.setitem(PERMISOS_POR_ROL, Rol.CONSEJO, PERMISOS_POR_ROL[Rol.CONSEJO] | {"anuncio.publicar"})
-    crear_persona("Carlos", (Rol.CONSEJO, torres), correo="consejo@torres.com")
-    consejo = cliente_para("consejo@torres.com")
+    monkeypatch.setitem(PERMISOS_POR_ROL, Rol.VIGILANCIA, PERMISOS_POR_ROL[Rol.VIGILANCIA] | {"anuncio.publicar"})
+    crear_persona("Carlos", (Rol.VIGILANCIA, torres), correo="vigilancia@torres.com")
+    vigilancia = cliente_para("vigilancia@torres.com")
     apto_101, _ = viviendas
 
-    assert publicar(consejo, alcance="vivienda", unidad=str(apto_101.id)).status_code == 403
-    assert publicar(consejo, alcance="conjunto").status_code == 201
+    assert publicar(vigilancia, alcance="vivienda", unidad=str(apto_101.id)).status_code == 403
+    assert publicar(vigilancia, alcance="conjunto").status_code == 201
 
 
 # Reglas de la publicación

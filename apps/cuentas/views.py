@@ -151,9 +151,44 @@ class RolesDeUsuarioView(VistaDeConjunto):
                 request.user.persona, usuario.persona, datos.validated_data["rol"], request.auth.conjunto_activo_id
             )
         except roles.RolYaAsignado:
-            return Response(
-                {"detail": "Esta persona ya tiene ese rol en el conjunto."}, status=status.HTTP_409_CONFLICT
+            return Response({"detail": roles.MENSAJE_YA_TIENE_ROL}, status=status.HTTP_409_CONFLICT)
+        return usuario_actualizado(request, usuario)
+
+
+def asignacion_del_usuario(request, usuario, asignacion_id):
+    """Solo una asignación vigente de ese usuario en el conjunto activo; si no, 404."""
+    asignacion = (
+        Asignacion.objects.vigentes()
+        .filter(pk=asignacion_id, persona=usuario.persona, conjunto_id=request.auth.conjunto_activo_id)
+        .first()
+    )
+    if asignacion is None:
+        raise NotFound()
+    return asignacion
+
+
+class CambiarRolView(VistaDeConjunto):
+    """Una persona tiene un solo rol por conjunto: para darle otro se cambia el que tiene."""
+
+    def post(self, request, usuario_id, asignacion_id):
+        exigir_permiso(request, "rol.asignar")
+        usuario = usuario_del_conjunto(request, usuario_id)
+        asignacion = asignacion_del_usuario(request, usuario, asignacion_id)
+        datos = AsignarRolSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        try:
+            roles.cambiar_rol(
+                request.user.persona, asignacion, datos.validated_data["rol"], request.auth.conjunto_activo_id
             )
+        except roles.MismoRol:
+            return Response({"detail": "Esta persona ya tiene ese rol."}, status=status.HTTP_400_BAD_REQUEST)
+        except roles.UltimaAdministracion:
+            return Response(
+                {"detail": "El conjunto no puede quedar sin Administración."}, status=status.HTTP_409_CONFLICT
+            )
+        except roles.RolYaAsignado:
+            # Otra petición le cambió el rol en el mismo instante.
+            return Response({"detail": roles.MENSAJE_YA_TIENE_ROL}, status=status.HTTP_409_CONFLICT)
         return usuario_actualizado(request, usuario)
 
 
@@ -161,13 +196,7 @@ class RetirarRolView(VistaDeConjunto):
     def post(self, request, usuario_id, asignacion_id):
         exigir_permiso(request, "rol.asignar")
         usuario = usuario_del_conjunto(request, usuario_id)
-        asignacion = (
-            Asignacion.objects.vigentes()
-            .filter(pk=asignacion_id, persona=usuario.persona, conjunto_id=request.auth.conjunto_activo_id)
-            .first()
-        )
-        if asignacion is None:
-            raise NotFound()
+        asignacion = asignacion_del_usuario(request, usuario, asignacion_id)
         try:
             roles.retirar_rol(request.user.persona, asignacion, request.auth.conjunto_activo_id)
         except roles.UltimaAdministracion:

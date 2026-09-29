@@ -393,7 +393,6 @@ def test_eliminar_usuario_cierra_sus_roles_solo_en_el_conjunto_activo(cliente, u
     )
     destino = Usuario.objects.create_user("carlos@correo.com", CONTRASENA, persona)
     asignar(destino, Rol.ADMINISTRACION, torres)
-    asignar(destino, Rol.RESIDENTE, torres)
     asignar(destino, Rol.RESIDENTE, mirador)
     entrar(cliente)
 
@@ -406,7 +405,7 @@ def test_eliminar_usuario_cierra_sus_roles_solo_en_el_conjunto_activo(cliente, u
     assert Persona.objects.filter(pk=persona.pk).exists()
 
 
-def test_eliminar_usuario_es_atomico_si_dejaria_el_conjunto_sin_administracion(cliente, usuario):
+def test_eliminar_usuario_no_deja_el_conjunto_sin_administracion(cliente, usuario):
     torres = Conjunto.objects.create(nombre="Torres del Río")
     asignar(usuario, Rol.SUPERUSUARIO)
     persona = Persona.objects.create(
@@ -417,7 +416,6 @@ def test_eliminar_usuario_es_atomico_si_dejaria_el_conjunto_sin_administracion(c
     )
     destino = Usuario.objects.create_user("carlos@correo.com", CONTRASENA, persona)
     asignar(destino, Rol.ADMINISTRACION, torres)
-    asignar(destino, Rol.RESIDENTE, torres)
     entrar(cliente)
     elegir(cliente, torres.id)
 
@@ -425,7 +423,7 @@ def test_eliminar_usuario_es_atomico_si_dejaria_el_conjunto_sin_administracion(c
 
     assert respuesta.status_code == 409
     assert respuesta.json()["detail"] == "El conjunto no puede quedar sin Administración."
-    assert Asignacion.objects.vigentes().filter(persona=persona, conjunto=torres).count() == 2
+    assert Asignacion.objects.vigentes().filter(persona=persona, conjunto=torres, rol=Rol.ADMINISTRACION).exists()
 
 
 def test_el_tipo_de_usuario_prioriza_superusuario_sobre_el_rol_del_conjunto(cliente, usuario):

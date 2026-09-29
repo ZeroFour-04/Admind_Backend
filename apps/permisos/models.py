@@ -17,7 +17,10 @@ class AsignacionQuerySet(models.QuerySet):
 
 
 class Asignacion(models.Model):
-    """Un rol del catálogo para una persona en un conjunto. Retirarlo es cerrar la vigencia, no borrar."""
+    """El rol del catálogo de una persona en un conjunto. Retirarlo es cerrar la vigencia, no borrar.
+
+    Una persona tiene un solo rol vigente por conjunto; en otro conjunto puede tener otro.
+    """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     persona = models.ForeignKey(
@@ -53,11 +56,13 @@ class Asignacion(models.Model):
                 condition=Q(vigencia_hasta__isnull=True) | Q(vigencia_hasta__gte=F("vigencia_desde")),
                 name="asignacion_vigencia_coherente",
             ),
+            # Sin `rol` en la clave: un solo rol abierto por persona y conjunto. Con NULLS NOT DISTINCT
+            # también cubre el de plataforma.
             models.UniqueConstraint(
-                fields=["persona", "rol", "conjunto"],
+                fields=["persona", "conjunto"],
                 condition=Q(vigencia_hasta__isnull=True),
                 nulls_distinct=False,
-                name="asignacion_vigente_unica",
+                name="asignacion_un_rol_por_conjunto",
             ),
         ]
 

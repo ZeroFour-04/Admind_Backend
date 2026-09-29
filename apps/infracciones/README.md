@@ -8,7 +8,7 @@ El sistema **no sanciona**: notifica la infracción y registra su desenlace.
 
 - Modelo `RegistroDeInfraccion` (§5.8). Sin campo `estado`: está abierto si `cierre_fecha` es nulo
 - `fecha_notificacion` obligatoria; la comunicación va a **propietario y arrendatario**, ambos
-- Visibilidad solo para Administración, Consejo y vínculos vigentes de la unidad
+- Visibilidad solo para Administración y vínculos vigentes de la unidad
 
 ## Lo que no existe
 

@@ -113,6 +113,18 @@ def retirar_rol_en(otro_conjunto):
     return "post", url, intacto
 
 
+def cambiar_rol_en(otro_conjunto):
+    usuario = usuario_de(otro_conjunto)
+    asignacion = Asignacion.objects.get(persona=usuario.persona)
+
+    def intacto():
+        roles = Asignacion.objects.filter(persona=usuario.persona).values_list("rol", "vigencia_hasta")
+        return list(roles) == [("residente", None)]
+
+    url = reverse("usuario-rol-cambiar", kwargs={"usuario_id": usuario.pk, "asignacion_id": asignacion.pk})
+    return "post", url, intacto
+
+
 def nada_escrito_en(otro_conjunto, persona):
     """Ni una asignación nueva para la persona ni un registro de auditoría en el otro conjunto."""
     with usar_conjunto(otro_conjunto.id):
@@ -348,6 +360,7 @@ ACCIONES = {
     "unidad-vinculos": registrar_vinculo_en,
     "vinculo-cerrar": cerrar_vinculo_en,
     "usuario-roles": asignar_rol_en,
+    "usuario-rol-cambiar": cambiar_rol_en,
     "usuario-rol-retirar": retirar_rol_en,
     "persona-buscar": buscar_persona_en,
     "persona-vincular": vincular_persona_en,

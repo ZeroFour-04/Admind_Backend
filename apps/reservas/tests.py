@@ -293,11 +293,11 @@ def test_el_detalle_trae_los_avisos_y_no_impiden_nada(pedro, salon):
 
 @pytest.fixture
 def administracion(torres):
-    """Dos personas con Administración vigente y una con Consejo, que no debe recibir el aviso."""
+    """Dos personas con Administración vigente y una con Secretaría, que no debe recibir el aviso."""
     return [
         crear_usuario("admin1@torres.com", "Andrés", Rol.ADMINISTRACION, torres),
         crear_usuario("admin2@torres.com", "Sofía", Rol.ADMINISTRACION, torres),
-        crear_usuario("consejo@torres.com", "Carlos", Rol.CONSEJO, torres),
+        crear_usuario("secretaria@torres.com", "Carlos", Rol.SECRETARIA, torres),
     ]
 
 

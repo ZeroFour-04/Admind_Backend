@@ -295,7 +295,7 @@ def test_volver_a_un_acento_del_catalogo_borra_el_color_propio(admin, torres):
 # Permisos
 
 
-@pytest.mark.parametrize("rol", [Rol.RESIDENTE, Rol.CONSEJO, Rol.SECRETARIA, Rol.VIGILANCIA])
+@pytest.mark.parametrize("rol", [Rol.RESIDENTE, Rol.SECRETARIA, Rol.VIGILANCIA])
 def test_sin_conjunto_branding_no_cambia_el_color_ni_el_logo(torres, rol):
     crear_persona("vecino@torres.com", (rol, torres))
     cliente = cliente_para("vecino@torres.com")

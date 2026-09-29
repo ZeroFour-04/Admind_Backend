@@ -9,7 +9,6 @@ from django.db import models
 class Rol(models.TextChoices):
     SUPERUSUARIO = "superusuario", "Superusuario"
     ADMINISTRACION = "administracion", "Administración"
-    CONSEJO = "consejo", "Consejo"
     SECRETARIA = "secretaria", "Secretaría"
     VIGILANCIA = "vigilancia", "Vigilancia"
     RESIDENTE = "residente", "Residente"
@@ -71,9 +70,6 @@ PERMISOS_POR_ROL = {
         "documento.subir", "documento.ver", "documento.descargar",
         "importacion.ejecutar", "respaldo.generar", "auditoria.ver",
         "parqueadero.ver", "parqueadero.asignar",
-    }),
-    Rol.CONSEJO: frozenset({
-        "infraccion.ver", "documento.ver", "auditoria.ver",
     }),
     Rol.SECRETARIA: frozenset({
         "solicitud.bandeja_ver", "solicitud.priorizar", "solicitud.rechazar_formal",

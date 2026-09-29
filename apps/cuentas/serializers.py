@@ -5,15 +5,40 @@ from apps.conjuntos.serializers import ConjuntoResumenSerializer
 from apps.cuentas import dos_factores
 from apps.cuentas.models import Usuario
 from apps.permisos.catalogo import ROLES_DE_CONJUNTO, Rol
+from apps.permisos.models import Asignacion
 from apps.permisos.servicios import permisos_efectivos
 from apps.personas.models import Persona, TipoDocumento, normalizar_documento
 
 
+def asignaciones_del_usuario(usuario, conjunto_id):
+    asignaciones = Asignacion.objects.vigentes().filter(persona=usuario.persona)
+    if conjunto_id is None:
+        asignaciones = asignaciones.filter(conjunto__isnull=True)
+    else:
+        asignaciones = asignaciones.filter(conjunto_id=conjunto_id)
+    return list(asignaciones)
+
+
+def nombre_del_rol(asignacion):
+    if asignacion.rol == Rol.ADMINISTRACION:
+        return "Administrador"
+    return asignacion.get_rol_display()
+
+
 def estado_de_la_sesion(sesion):
     conjunto = sesion.conjunto_activo
+    asignaciones = asignaciones_del_usuario(sesion.usuario, None)
+    if not any(asignacion.rol == Rol.SUPERUSUARIO for asignacion in asignaciones):
+        asignaciones = asignaciones_del_usuario(sesion.usuario, sesion.conjunto_activo_id)
+    roles = sorted(
+        nombre_del_rol(asignacion)
+        for asignacion in asignaciones
+    )
     return {
         "conjunto_activo": ConjuntoResumenSerializer(conjunto).data if conjunto else None,
         "permisos": sorted(permisos_efectivos(sesion.usuario.persona, sesion.conjunto_activo_id)),
+        "roles": roles,
+        "tipo_usuario": ", ".join(roles) or "Usuario",
         "dos_factores": dos_factores.estado(sesion),
     }
 

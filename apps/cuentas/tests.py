@@ -7,7 +7,7 @@ from rest_framework.test import APIClient
 
 from apps.conjuntos.models import Conjunto
 from apps.cuentas.models import TokenDeSesion, Usuario
-from apps.permisos.catalogo import PERMISOS_DE_PLATAFORMA, PERMISOS_POR_ROL, Rol
+from apps.permisos.catalogo import PERMISOS, PERMISOS_POR_ROL, Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
 
@@ -174,6 +174,8 @@ def test_con_un_solo_conjunto_entra_directo(cliente, usuario):
         "logo": None,
     }
     assert set(sesion["permisos"]) == PERMISOS_POR_ROL[Rol.ADMINISTRACION]
+    assert sesion["tipo_usuario"] == "Administrador"
+    assert sesion["roles"] == ["Administrador"]
 
 
 def test_al_crear_usuario_se_asigna_el_rol_en_el_conjunto_activo(cliente, usuario):
@@ -240,13 +242,13 @@ def test_al_cambiar_de_conjunto_los_permisos_son_solo_los_del_nuevo(cliente, usu
     assert TokenDeSesion.objects.get().conjunto_activo_id == mirador.id
 
 
-def test_superusuario_entra_sin_conjunto_con_permisos_de_plataforma(cliente, usuario):
+def test_superusuario_entra_sin_conjunto_con_todos_los_permisos(cliente, usuario):
     asignar(usuario, Rol.SUPERUSUARIO)
 
     sesion = entrar(cliente)
 
     assert sesion["conjunto_activo"] is None
-    assert set(sesion["permisos"]) == PERMISOS_DE_PLATAFORMA
+    assert set(sesion["permisos"]) == PERMISOS
 
 
 def test_superusuario_puede_crear_usuario_en_el_conjunto_activo(cliente, usuario):
@@ -339,6 +341,99 @@ def test_residente_no_puede_gestionar_usuarios(cliente, usuario):
 
     assert cliente.get("/auth/usuarios/").status_code == 403
     assert cliente.post("/auth/usuarios/", datos_de_usuario(), format="json").status_code == 403
+
+
+def test_el_perfil_entrega_solo_los_datos_del_usuario_autenticado_sin_exigir_gestion(cliente):
+    torres = Conjunto.objects.create(nombre="Torres del Río")
+    persona = Persona.objects.create(
+        tipo_documento=TipoDocumento.CC,
+        numero_documento="1023456789",
+        nombres="Laura",
+        apellidos="Gómez",
+        telefono="3001234567",
+    )
+    usuario = Usuario.objects.create_user("laura@correo.com", CONTRASENA, persona)
+    asignar(usuario, Rol.RESIDENTE, torres)
+    entrar(cliente)
+
+    respuesta = cliente.get("/auth/usuarios/perfil/")
+    datos = respuesta.json()
+
+    assert respuesta.status_code == 200
+    assert datos["correo"] == usuario.correo
+    assert datos["nombre"] == "Laura Gómez"
+    assert datos["tipo_documento"] == TipoDocumento.CC
+    assert datos["documento"] == "1023456789"
+    assert datos["telefono"] == "3001234567"
+    assert datos["roles"] == ["Residente"]
+    assert "contrasena" not in datos and "password" not in datos
+
+
+def test_al_cambiar_conjunto_se_actualiza_el_tipo_de_usuario(cliente, usuario):
+    torres = Conjunto.objects.create(nombre="Torres del Río")
+    mirador = Conjunto.objects.create(nombre="Mirador")
+    asignar(usuario, Rol.ADMINISTRACION, torres)
+    asignar(usuario, Rol.RESIDENTE, mirador)
+    entrar(cliente)
+
+    estado = elegir(cliente, mirador.id).json()
+    assert estado["tipo_usuario"] == "Residente"
+    assert estado["roles"] == ["Residente"]
+
+
+def test_eliminar_usuario_cierra_sus_roles_solo_en_el_conjunto_activo(cliente, usuario):
+    torres = Conjunto.objects.create(nombre="Torres del Río")
+    mirador = Conjunto.objects.create(nombre="Mirador")
+    asignar(usuario, Rol.ADMINISTRACION, torres)
+    persona = Persona.objects.create(
+        tipo_documento=TipoDocumento.CC,
+        numero_documento="55555",
+        nombres="Carlos",
+        apellidos="Ruiz",
+    )
+    destino = Usuario.objects.create_user("carlos@correo.com", CONTRASENA, persona)
+    asignar(destino, Rol.ADMINISTRACION, torres)
+    asignar(destino, Rol.RESIDENTE, torres)
+    asignar(destino, Rol.RESIDENTE, mirador)
+    entrar(cliente)
+
+    respuesta = cliente.post(f"/auth/usuarios/{destino.id}/eliminar/")
+
+    assert respuesta.status_code == 204
+    assert not Asignacion.objects.vigentes().filter(persona=persona, conjunto=torres).exists()
+    assert Asignacion.objects.vigentes().filter(persona=persona, conjunto=mirador, rol=Rol.RESIDENTE).exists()
+    assert Usuario.objects.filter(pk=destino.pk).exists()
+    assert Persona.objects.filter(pk=persona.pk).exists()
+
+
+def test_eliminar_usuario_es_atomico_si_dejaria_el_conjunto_sin_administracion(cliente, usuario):
+    torres = Conjunto.objects.create(nombre="Torres del Río")
+    asignar(usuario, Rol.SUPERUSUARIO)
+    persona = Persona.objects.create(
+        tipo_documento=TipoDocumento.CC,
+        numero_documento="55555",
+        nombres="Carlos",
+        apellidos="Ruiz",
+    )
+    destino = Usuario.objects.create_user("carlos@correo.com", CONTRASENA, persona)
+    asignar(destino, Rol.ADMINISTRACION, torres)
+    asignar(destino, Rol.RESIDENTE, torres)
+    entrar(cliente)
+    elegir(cliente, torres.id)
+
+    respuesta = cliente.post(f"/auth/usuarios/{destino.id}/eliminar/")
+
+    assert respuesta.status_code == 409
+    assert respuesta.json()["detail"] == "El conjunto no puede quedar sin Administración."
+    assert Asignacion.objects.vigentes().filter(persona=persona, conjunto=torres).count() == 2
+
+
+def test_el_tipo_de_usuario_prioriza_superusuario_sobre_el_rol_del_conjunto(cliente, usuario):
+    torres = Conjunto.objects.create(nombre="Torres del Río")
+    asignar(usuario, Rol.SUPERUSUARIO)
+    asignar(usuario, Rol.RESIDENTE, torres)
+
+    assert entrar(cliente)["tipo_usuario"] == "Superusuario"
 
 
 # Recuperación de contraseña (HU-01)

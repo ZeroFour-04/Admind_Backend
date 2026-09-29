@@ -1,8 +1,8 @@
 """Pruebas de HU-06: asignar y retirar roles del catálogo en el conjunto activo.
 
 Dos criterios ya tienen prueba en `apps/permisos/tests.py`: un rol del conjunto A no da permisos
-en B (`test_rol_de_un_conjunto_no_da_permisos_en_otro`) y el rol de plataforma no opera dentro de
-un conjunto (`test_rol_de_plataforma_no_opera_dentro_de_un_conjunto`).
+en B (`test_rol_de_un_conjunto_no_da_permisos_en_otro`); el Superusuario, en cambio, tiene todos
+los permisos del catálogo en cualquier conjunto.
 """
 import threading
 

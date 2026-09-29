@@ -49,20 +49,20 @@ def test_permisos_sensibles_existen_en_el_catalogo_e_incluyen_los_de_plataforma(
     assert PERMISOS_DE_PLATAFORMA <= PERMISOS_SENSIBLES
 
 
-def test_rol_de_plataforma_no_opera_dentro_de_un_conjunto():
+def test_superusuario_tiene_todos_los_permisos_del_catalogo():
     permisos = PERMISOS_POR_ROL[Rol.SUPERUSUARIO]
 
-    assert {"reserva.aprobar", "anuncio.publicar", "infraccion.registrar"}.isdisjoint(permisos)
+    assert permisos == PERMISOS
 
 
 def test_administracion_puede_crear_conjuntos_desde_el_conjunto_activo():
     assert "conjunto.crear" in PERMISOS_POR_ROL[Rol.ADMINISTRACION]
 
 
-def test_solo_administracion_aprueba_reservas():
+def test_administracion_y_superusuario_pueden_aprobar_reservas():
     con_aprobacion = {rol for rol, permisos in PERMISOS_POR_ROL.items() if "reserva.aprobar" in permisos}
 
-    assert con_aprobacion == {Rol.ADMINISTRACION}
+    assert con_aprobacion == {Rol.ADMINISTRACION, Rol.SUPERUSUARIO}
 
 
 def test_secretaria_no_tiene_ningun_permiso_de_aprobacion():
@@ -180,9 +180,9 @@ def test_rol_de_un_conjunto_no_da_permisos_en_otro(persona, conjunto):
     assert permisos_efectivos(persona, otro_conjunto.id) == set()
 
 
-def test_roles_de_plataforma_cuentan_en_cualquier_conjunto_y_sin_conjunto(persona, conjunto):
+def test_superusuario_tiene_todos_los_permisos_en_cualquier_conjunto_y_sin_conjunto(persona, conjunto):
     Asignacion.objects.create(persona=persona, rol=Rol.SUPERUSUARIO)
     Asignacion.objects.create(persona=persona, rol=Rol.RESIDENTE, conjunto=conjunto)
 
-    assert permisos_efectivos(persona, None) == PERMISOS_DE_PLATAFORMA
-    assert permisos_efectivos(persona, conjunto.id) == PERMISOS_DE_PLATAFORMA | PERMISOS_POR_ROL[Rol.RESIDENTE]
+    assert permisos_efectivos(persona, None) == PERMISOS
+    assert permisos_efectivos(persona, conjunto.id) == PERMISOS

@@ -53,7 +53,7 @@ PERMISOS_SENSIBLES = PERMISOS_DE_PLATAFORMA | frozenset({
 })
 
 PERMISOS_POR_ROL = {
-    Rol.SUPERUSUARIO: PERMISOS_DE_PLATAFORMA,
+    Rol.SUPERUSUARIO: PERMISOS,
     Rol.ADMINISTRACION: frozenset({
         "conjunto.crear",
         "conjunto.editar", "conjunto.branding",

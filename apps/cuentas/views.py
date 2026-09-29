@@ -17,6 +17,7 @@ from apps.cuentas.serializers import (
     RestablecerContrasenaSerializer,
     SolicitarRecuperacionSerializer,
     UsuarioResumenSerializer,
+    asignaciones_del_usuario,
     estado_de_la_sesion,
 )
 from apps.permisos import servicios as roles
@@ -111,6 +112,15 @@ class DetalleDeUsuarioView(VistaDeConjunto):
         return Response(UsuarioResumenSerializer(usuario).data)
 
 
+class PerfilDeUsuarioView(APIView):
+    def get(self, request):
+        usuario = request.user
+        usuario.persona.asignaciones_en_conjunto = asignaciones_del_usuario(
+            usuario, request.auth.conjunto_activo_id
+        )
+        return Response(UsuarioResumenSerializer(usuario).data)
+
+
 # Roles del usuario en el conjunto activo (HU-06)
 
 
@@ -165,6 +175,21 @@ class RetirarRolView(VistaDeConjunto):
                 {"detail": "El conjunto no puede quedar sin Administración."}, status=status.HTTP_409_CONFLICT
             )
         return usuario_actualizado(request, usuario)
+
+
+class RetirarUsuarioDelConjuntoView(VistaDeConjunto):
+    def post(self, request, usuario_id):
+        exigir_permiso(request, "rol.asignar")
+        usuario = usuario_del_conjunto(request, usuario_id)
+        try:
+            roles.retirar_roles_del_conjunto(
+                request.user.persona, usuario.persona, request.auth.conjunto_activo_id
+            )
+        except roles.UltimaAdministracion:
+            return Response(
+                {"detail": "El conjunto no puede quedar sin Administración."}, status=status.HTTP_409_CONFLICT
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # Recuperación de contraseña (HU-01)

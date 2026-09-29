@@ -9,6 +9,8 @@ Catálogo de permisos, los seis roles y la asignación de roles a personas por c
 - Catálogos de permisos y roles **fijos en código** (§5.3). No hay pantalla para editarlos
 - Modelo `Asignacion (persona, rol, conjunto)`. `conjunto` nulo solo para Superusuario
 - Permisos efectivos = **unión** de los de todos los roles. Sin denegaciones
+- El Superusuario tiene todos los permisos del catálogo en cualquier conjunto; necesita elegir
+  un conjunto activo para operar sobre sus datos
 - Marca de **permisos sensibles**, que exigen 2FA
 - **Nunca cero gobierno:** la comprobación y el cambio de roles ocurren en la misma transacción (§5.11)
 

@@ -48,7 +48,8 @@ def puede_operar_en(persona, conjunto_id):
 def permisos_efectivos(persona, conjunto_id):
     """Unión de los permisos de sus roles vigentes en ese conjunto y de sus roles de plataforma.
 
-    Un rol de otro conjunto no aporta nada (HU-06). Sin conjunto, solo cuentan los de plataforma.
+    Un rol de otro conjunto no aporta nada (HU-06). Sin conjunto, solo cuentan los roles de plataforma;
+    el Superusuario aporta todos los permisos del catálogo.
     """
     roles = (
         Asignacion.objects.vigentes()
@@ -124,3 +125,37 @@ def retirar_rol(actor, asignacion, conjunto_id):
             actor, "rol.retirar", "Asignacion", asignacion.id, antes=antes, despues=datos_de_la_asignacion(asignacion)
         )
     return asignacion
+
+
+def retirar_roles_del_conjunto(actor, persona, conjunto_id):
+    """Cierra todas las asignaciones vigentes de una persona en el conjunto como una sola operación."""
+    with transaction.atomic():
+        administradores = list(
+            Asignacion.objects.vigentes()
+            .filter(conjunto_id=conjunto_id, rol=Rol.ADMINISTRACION)
+            .select_for_update()
+        )
+        asignaciones = list(
+            Asignacion.objects.vigentes()
+            .filter(persona=persona, conjunto_id=conjunto_id)
+            .select_for_update()
+        )
+        administraciones_a_retirar = sum(
+            asignacion.rol == Rol.ADMINISTRACION for asignacion in asignaciones
+        )
+        if administraciones_a_retirar and len(administradores) <= administraciones_a_retirar:
+            raise UltimaAdministracion()
+
+        for asignacion in asignaciones:
+            antes = datos_de_la_asignacion(asignacion)
+            asignacion.vigencia_hasta = timezone.localdate()
+            asignacion.save(update_fields=["vigencia_hasta"])
+            auditoria.registrar(
+                actor,
+                "rol.retirar",
+                "Asignacion",
+                asignacion.id,
+                antes=antes,
+                despues=datos_de_la_asignacion(asignacion),
+            )
+    return asignaciones

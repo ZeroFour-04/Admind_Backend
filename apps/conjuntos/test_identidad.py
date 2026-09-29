@@ -1,9 +1,10 @@
-"""Pruebas de HU-21: identidad visual del conjunto, con el color del catálogo y el logo.
+"""Pruebas de HU-21: identidad visual del conjunto, con su color (del catálogo o propio) y su foto 1:1.
 
 El contraste del texto sobre cada uno de los ocho acentos se prueba en el frontend, que es
 donde vive la paleta.
 """
 import hashlib
+import struct
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -23,10 +24,34 @@ CONTRASENA = "una-clave-larga-2026"
 IDENTIDAD = "/conjuntos/actual/identidad/"
 LOGO = "/conjuntos/actual/identidad/logo/"
 
-# Basta con la firma y algo de relleno: el servicio mira los primeros bytes, no dibuja la imagen.
-PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
-JPG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
-WEBP = b"RIFF\x40\x00\x00\x00WEBPVP8 " + b"\x00" * 64
+# Basta con la firma y la cabecera con el tamaño: el servicio lee esos bytes, no dibuja la imagen.
+
+
+def png(ancho, alto):
+    ihdr = struct.pack(">I", 13) + b"IHDR" + struct.pack(">II", ancho, alto) + b"\x08\x06\x00\x00\x00"
+    return b"\x89PNG\r\n\x1a\n" + ihdr + b"\x00" * 32
+
+
+def jpg(ancho, alto):
+    # Inicio, un segmento APP0 que hay que saltar y el inicio de cuadro con alto y ancho.
+    app0 = b"\xff\xe0" + struct.pack(">H", 16) + b"JFIF\x00" + b"\x00" * 9
+    sof = b"\xff\xc0" + struct.pack(">HBHH", 17, 8, alto, ancho) + b"\x00" * 10
+    return b"\xff\xd8" + app0 + sof + b"\x00" * 16
+
+
+def webp(ancho, alto, variante="VP8 "):
+    if variante == "VP8 ":
+        cuerpo = b"\x00\x00\x00\x9d\x01\x2a" + struct.pack("<HH", ancho, alto)
+    elif variante == "VP8L":
+        cuerpo = b"\x2f" + ((ancho - 1) | (alto - 1) << 14).to_bytes(4, "little")
+    else:
+        cuerpo = b"\x00" * 4 + (ancho - 1).to_bytes(3, "little") + (alto - 1).to_bytes(3, "little")
+    return b"RIFF\x40\x00\x00\x00WEBP" + variante.encode() + b"\x00" * 4 + cuerpo + b"\x00" * 32
+
+
+PNG = png(64, 64)
+JPG = jpg(64, 64)
+WEBP = webp(64, 64)
 
 
 def huella(contenido):
@@ -120,6 +145,34 @@ def test_un_archivo_que_no_es_imagen_se_rechaza_por_su_tipo_real(admin, torres, 
     assert torres.logo_huella == ""
 
 
+@pytest.mark.parametrize(
+    "contenido",
+    [png(64, 64), jpg(300, 300), webp(128, 128), webp(128, 128, "VP8L"), webp(512, 512, "VP8X")],
+)
+def test_una_foto_cuadrada_se_acepta_en_cualquiera_de_los_tres_formatos(admin, torres, contenido):
+    assert subir(admin, contenido).status_code == 200
+
+
+@pytest.mark.parametrize(
+    "contenido",
+    [png(640, 480), jpg(300, 301), webp(128, 64), webp(64, 128, "VP8L"), webp(1024, 512, "VP8X")],
+)
+def test_una_foto_que_no_es_cuadrada_se_rechaza_con_su_tamano(admin, torres, contenido):
+    respuesta = subir(admin, contenido)
+
+    assert respuesta.status_code == 400
+    assert respuesta.json()["archivo"][0].startswith("La foto debe ser cuadrada (1:1). Esta mide ")
+    torres.refresh_from_db()
+    assert torres.logo_huella == ""
+
+
+def test_una_imagen_con_la_firma_pero_sin_cabecera_legible_se_rechaza(admin, torres):
+    respuesta = subir(admin, b"\x89PNG\r\n\x1a\n" + b"\x00" * 64)
+
+    assert respuesta.status_code == 400
+    assert respuesta.json()["archivo"] == ["No se pudo leer el tamaño de la imagen."]
+
+
 def test_un_logo_mas_pesado_que_el_limite_se_rechaza(admin, torres):
     pesado = PNG + b"\x00" * servicios.TAMANO_MAXIMO_LOGO
 
@@ -195,6 +248,50 @@ def test_el_color_se_elige_solo_del_catalogo(admin, torres):
     assert torres.acento == "vino"
 
 
+def test_un_color_propio_se_guarda_con_el_acento_personalizado(admin, torres):
+    respuesta = admin.patch(IDENTIDAD, {"acento": "personalizado", "color": "#1A8FE3"}, format="json")
+
+    assert respuesta.status_code == 200
+    assert (respuesta.json()["acento"], respuesta.json()["color"]) == ("personalizado", "#1a8fe3")
+    torres.refresh_from_db()
+    assert (torres.acento, torres.color_personalizado) == ("personalizado", "#1a8fe3")
+    # El color viaja también en el listado del selector, que pinta cada tarjeta.
+    assert admin.get("/auth/conjuntos/").json()[0]["color"] == "#1a8fe3"
+
+
+def test_un_color_muy_claro_tambien_se_guarda(admin):
+    # Se pierde contraste con el texto blanco, pero la API no lo prohíbe: la pantalla solo lo advierte.
+    assert admin.patch(IDENTIDAD, {"acento": "personalizado", "color": "#fff8c4"}, format="json").status_code == 200
+
+
+@pytest.mark.parametrize(
+    "datos",
+    [
+        {"acento": "personalizado"},
+        {"acento": "personalizado", "color": "azul"},
+        {"acento": "personalizado", "color": "#12345"},
+        {"acento": "vino", "color": "#1a8fe3"},
+    ],
+)
+def test_el_personalizado_va_con_un_hex_y_los_del_catalogo_sin_color(admin, torres, datos):
+    respuesta = admin.patch(IDENTIDAD, datos, format="json")
+
+    assert respuesta.status_code == 400
+    assert "color" in respuesta.json()
+    torres.refresh_from_db()
+    assert (torres.acento, torres.color_personalizado) == ("verde", "")
+
+
+def test_volver_a_un_acento_del_catalogo_borra_el_color_propio(admin, torres):
+    admin.patch(IDENTIDAD, {"acento": "personalizado", "color": "#1a8fe3"}, format="json")
+
+    respuesta = admin.patch(IDENTIDAD, {"acento": "ocre"}, format="json")
+
+    assert respuesta.json()["color"] is None
+    torres.refresh_from_db()
+    assert (torres.acento, torres.color_personalizado) == ("ocre", "")
+
+
 # Permisos
 
 
@@ -215,3 +312,4 @@ def test_sin_conjunto_branding_tampoco_cambia_el_color_por_el_asistente(torres):
     cliente = cliente_para("vecino@torres.com")
 
     assert cliente.patch("/conjuntos/actual/", {"acento": "vino"}, format="json").status_code == 403
+    assert cliente.patch("/conjuntos/actual/", {"color": "#1a8fe3"}, format="json").status_code == 403

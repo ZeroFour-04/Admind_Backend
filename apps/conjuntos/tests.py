@@ -2,7 +2,7 @@
 import uuid
 
 import pytest
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from rest_framework.test import APIClient
 
 from apps.conjuntos.models import Conjunto
@@ -34,6 +34,17 @@ def test_conjunto_nace_con_el_acento_verde_y_la_base_rechaza_uno_fuera_del_catal
     assert Conjunto.objects.create(nombre="Torres del Río").acento == "verde"
     with pytest.raises(IntegrityError):
         Conjunto.objects.create(nombre="Mirador", acento="fucsia")
+
+
+def test_la_base_exige_el_color_con_el_personalizado_y_lo_rechaza_con_los_del_catalogo():
+    Conjunto.objects.create(nombre="Torres del Río", acento="personalizado", color_personalizado="#1a8fe3")
+    for datos in (
+        {"acento": "personalizado"},
+        {"acento": "personalizado", "color_personalizado": "#1A8FE3"},
+        {"acento": "vino", "color_personalizado": "#1a8fe3"},
+    ):
+        with pytest.raises(IntegrityError), transaction.atomic():
+            Conjunto.objects.create(nombre="Mirador", **datos)
 
 
 # Asistente por la API
@@ -128,6 +139,14 @@ def test_administracion_sin_conjunto_activo_no_puede_crear(torres):
     cliente = cliente_para("admin@dos.com")
 
     assert crear(cliente).status_code == 403
+
+
+def test_el_asistente_crea_el_conjunto_con_un_color_propio(admin):
+    respuesta = crear(admin, acento="personalizado", color="#7a3cc2")
+
+    assert respuesta.status_code == 201
+    assert respuesta.json()["conjunto"]["color"] == "#7a3cc2"
+    assert Conjunto.objects.get(nombre="Mirador").color_personalizado == "#7a3cc2"
 
 
 def test_nombre_repetido_o_acento_fuera_del_catalogo_responden_400(admin):

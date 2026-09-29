@@ -7,7 +7,11 @@ from apps.comun.modelos_base.modelos import ModeloDeConjunto
 
 
 class Acento(models.TextChoices):
-    """Catálogo cerrado de acentos (maestro §6.3). Se guarda el slug, nunca un color."""
+    """Los ocho acentos del catálogo (maestro §6.3) y el personalizado.
+
+    Con uno del catálogo se guarda solo el slug: su paleta vive en el frontend. Con el
+    personalizado se guarda además el color que eligió la Administración.
+    """
 
     VERDE = "verde", "Verde"
     AZUL = "azul", "Azul"
@@ -17,6 +21,7 @@ class Acento(models.TextChoices):
     TERRACOTA = "terracota", "Terracota"
     OCRE = "ocre", "Ocre"
     PIZARRA = "pizarra", "Pizarra"
+    PERSONALIZADO = "personalizado", "Personalizado"
 
 
 class Conjunto(models.Model):
@@ -24,9 +29,12 @@ class Conjunto(models.Model):
     nombre = models.CharField(max_length=80)
     direccion = models.CharField(max_length=200, blank=True)
     # El color cambia al cambiar de conjunto: dice dónde se está operando (HU-26).
-    acento = models.CharField(max_length=12, choices=Acento.choices, default=Acento.VERDE)
-    # Huella SHA-256 del logo, vacía si no tiene (HU-21). La imagen vive en LogoDeConjunto: aquí
-    # solo queda la huella, para que el selector sepa qué logo mostrar sin cargar ninguna imagen.
+    acento = models.CharField(max_length=16, choices=Acento.choices, default=Acento.VERDE)
+    # Hex "#rrggbb" en minúsculas, solo con el acento personalizado; vacío con los del catálogo.
+    color_personalizado = models.CharField(max_length=7, blank=True)
+    # Huella SHA-256 del logo, vacía si no tiene (HU-21). El logo es la foto cuadrada (1:1) del
+    # conjunto. La imagen vive en LogoDeConjunto: aquí solo queda la huella, para que el selector
+    # sepa qué foto mostrar sin cargar ninguna imagen.
     logo_huella = models.CharField(max_length=64, blank=True)
     activo = models.BooleanField(default=True)
     operativo = models.BooleanField(default=False)
@@ -37,6 +45,14 @@ class Conjunto(models.Model):
             models.CheckConstraint(
                 condition=Q(acento__in=Acento.values),
                 name="conjunto_acento_valido",
+            ),
+            # El personalizado siempre trae su color, y los del catálogo nunca traen uno.
+            models.CheckConstraint(
+                condition=(
+                    Q(acento=Acento.PERSONALIZADO, color_personalizado__regex=r"^#[0-9a-f]{6}$")
+                    | (~Q(acento=Acento.PERSONALIZADO) & Q(color_personalizado=""))
+                ),
+                name="conjunto_color_personalizado_valido",
             ),
             models.CheckConstraint(
                 condition=Q(logo_huella="") | Q(logo_huella__regex=r"^[0-9a-f]{64}$"),

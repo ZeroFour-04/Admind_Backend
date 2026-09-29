@@ -10,6 +10,7 @@ from django.db import transaction
 
 from apps.areas.models import Area
 from apps.comun.aislamiento.contexto import usar_conjunto
+from apps.conjuntos.imagenes import dimensiones
 from apps.conjuntos.models import Conjunto, LogoDeConjunto
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
@@ -54,7 +55,7 @@ class Requisito:
         return asdict(self)
 
 
-def crear_conjunto(persona, nombre, direccion="", acento=None):
+def crear_conjunto(persona, nombre, direccion="", acento=None, color_personalizado=""):
     """Paso 1 del asistente: los datos básicos. El conjunto nace activo y no operativo.
 
     Quien lo crea desde un rol de conjunto queda como su Administración: así el conjunto no nace
@@ -64,6 +65,7 @@ def crear_conjunto(persona, nombre, direccion="", acento=None):
     datos = {"nombre": nombre, "direccion": direccion}
     if acento:
         datos["acento"] = acento
+        datos["color_personalizado"] = color_personalizado
     with transaction.atomic():
         conjunto = Conjunto.objects.create(**datos)
         if not es_superusuario(persona):
@@ -122,7 +124,8 @@ def activar(conjunto):
     return conjunto
 
 
-# Logo del conjunto (HU-21). El color no pasa por aquí: es uno de los ocho acentos del catálogo.
+# Foto del conjunto (HU-21), guardada como su logo. Es cuadrada (1:1): el navegador la recorta
+# antes de subirla y aquí se comprueba. El color no pasa por aquí.
 
 
 def tipo_real_de_imagen(contenido):
@@ -137,14 +140,20 @@ def tipo_real_de_imagen(contenido):
 
 
 def guardar_logo(conjunto, contenido):
-    """Guarda o reemplaza el logo del conjunto activo. La huella cambia con la imagen."""
+    """Guarda o reemplaza la foto del conjunto activo. La huella cambia con la imagen."""
     if not contenido:
         raise LogoInvalido("El archivo está vacío.")
     if len(contenido) > TAMANO_MAXIMO_LOGO:
-        raise LogoInvalido(f"El logo no puede pesar más de {TAMANO_MAXIMO_LOGO // 1024} KB.")
+        raise LogoInvalido(f"La foto no puede pesar más de {TAMANO_MAXIMO_LOGO // 1024} KB.")
     tipo = tipo_real_de_imagen(contenido)
     if tipo is None:
         raise LogoInvalido("El archivo no es una imagen PNG, JPG o WebP.")
+    tamano = dimensiones(contenido, tipo)
+    if tamano is None:
+        raise LogoInvalido("No se pudo leer el tamaño de la imagen.")
+    ancho, alto = tamano
+    if ancho != alto:
+        raise LogoInvalido(f"La foto debe ser cuadrada (1:1). Esta mide {ancho} × {alto} px.")
     with transaction.atomic():
         LogoDeConjunto.objects.update_or_create(conjunto=conjunto, defaults={"contenido": contenido, "tipo": tipo})
         conjunto.logo_huella = hashlib.sha256(contenido).hexdigest()
@@ -153,7 +162,7 @@ def guardar_logo(conjunto, contenido):
 
 
 def quitar_logo(conjunto):
-    """Sin logo, la interfaz muestra el nombre del conjunto."""
+    """Sin foto, la interfaz muestra un marcador con las iniciales del conjunto."""
     with transaction.atomic():
         LogoDeConjunto.objects.filter(conjunto=conjunto).delete()
         conjunto.logo_huella = ""

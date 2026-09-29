@@ -170,6 +170,7 @@ def test_con_un_solo_conjunto_entra_directo(cliente, usuario):
         "id": str(torres.id),
         "nombre": "Torres del Río",
         "acento": "verde",
+        "color": None,
         "logo": None,
     }
     assert set(sesion["permisos"]) == PERMISOS_POR_ROL[Rol.ADMINISTRACION]

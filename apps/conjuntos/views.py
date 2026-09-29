@@ -70,7 +70,7 @@ class ConjuntoActualView(VistaDeConjunto):
 
     def patch(self, request):
         exigir_permiso(request, "conjunto.editar", "conjunto.activar")
-        if "acento" in request.data:
+        if "acento" in request.data or "color" in request.data:
             exigir_permiso(request, "conjunto.branding", "conjunto.activar")
         conjunto = Conjunto.objects.get(pk=request.auth.conjunto_activo_id)
         datos = DatosDeConjuntoSerializer(conjunto, data=request.data, partial=True)
@@ -96,7 +96,7 @@ class ActivarConjuntoView(VistaDeConjunto):
         return Response(resumen_del_asistente(request, conjunto))
 
 
-# Identidad visual (HU-21): el color, uno de los ocho del catálogo, y el logo.
+# Identidad visual (HU-21): el color, uno de los ocho del catálogo o uno propio, y la foto 1:1.
 
 # El Superusuario también, como en el resto del asistente: configura el conjunto que está creando.
 PERMISOS_DE_IDENTIDAD = ("conjunto.branding", "conjunto.activar")
@@ -113,7 +113,7 @@ class IdentidadDelConjuntoView(VistaDeConjunto):
         datos = AcentoSerializer(data=request.data)
         datos.is_valid(raise_exception=True)
         conjunto = Conjunto.objects.get(pk=request.auth.conjunto_activo_id)
-        servicios.editar_datos(conjunto, acento=datos.validated_data["acento"])
+        servicios.editar_datos(conjunto, **datos.validated_data)
         return Response(ConjuntoResumenSerializer(conjunto).data)
 
 

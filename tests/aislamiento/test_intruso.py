@@ -22,6 +22,7 @@ from apps.personas.models import Persona, TipoDocumento
 from apps.reglas.models import Regla
 from apps.reservas.models import Solicitud
 from apps.unidades.models import TipoVinculo, Unidad, VinculoUnidad
+from apps.visitantes.models import Visitante
 from tests.aislamiento.models import Area
 
 pytestmark = pytest.mark.django_db
@@ -82,6 +83,13 @@ def detalle_de_area(otro_conjunto):
 
 def listado_de_areas(otro_conjunto):
     return reverse("pruebas-areas"), str(crear_area(otro_conjunto, "Piscina").pk)
+
+
+def listado_de_visitantes(otro_conjunto):
+    with usar_conjunto(otro_conjunto.id):
+        unidad = Unidad.objects.create(nombre="Torre 1 – 101")
+        visitante = Visitante.objects.create(nombre="María Pérez", cedula="123456789", unidad=unidad)
+    return reverse("visitantes"), str(visitante.pk)
 
 
 def usuario_de(otro_conjunto):
@@ -351,6 +359,7 @@ LISTADOS = {
     "areas": listado_de_areas_comunes,
     "reglas": listado_de_reglas,
     "solicitudes": listado_de_solicitudes,
+    "visitantes": listado_de_visitantes,
 }
 # Rutas de conjunto sin identificador ni listado: actúan sobre el conjunto activo.
 ACCIONES = {

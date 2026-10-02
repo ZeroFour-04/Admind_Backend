@@ -33,7 +33,7 @@ class UnidadesView(VistaDeConjunto):
     """Las unidades del conjunto activo. También las usa el anuncio dirigido a una vivienda (HU-25)."""
 
     def get(self, request):
-        exigir_permiso(request, "vinculo.gestionar", "anuncio.dirigir")
+        exigir_permiso(request, "vinculo.gestionar", "anuncio.dirigir", "visitante.registrar")
         return Response(UnidadSerializer(servicios.unidades_del_conjunto(), many=True).data)
 
     def post(self, request):

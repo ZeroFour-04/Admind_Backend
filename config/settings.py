@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     "apps.areas",
     "apps.reglas",
     "apps.reservas",
+    "apps.visitantes",
 ]
 AUTH_USER_MODEL = "cuentas.Usuario"
 

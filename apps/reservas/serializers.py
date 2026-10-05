@@ -28,6 +28,11 @@ class EnviarSolicitudSerializer(serializers.Serializer):
     observaciones = serializers.CharField(max_length=1000, required=False, allow_blank=True, default="")
 
 
+class DecisionDeSolicitudSerializer(serializers.Serializer):
+    decision = serializers.ChoiceField(choices=("RESERVADA", "RECHAZADA"))
+    motivo = serializers.CharField(max_length=1000, trim_whitespace=True)
+
+
 class SolicitudSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     area = serializers.SerializerMethodField()
@@ -48,6 +53,8 @@ class SolicitudSerializer(serializers.Serializer):
     # Qué reglas se evaluaron y con qué resultado (HU-13, plan P10).
     evaluacion = serializers.JSONField()
     evaluada_en = serializers.DateTimeField()
+    motivo_decision = serializers.CharField()
+    decidida_en = serializers.DateTimeField(allow_null=True)
 
     def get_area(self, solicitud):
         return {"id": solicitud.area_id, "nombre": solicitud.area.nombre}
@@ -57,6 +64,27 @@ class SolicitudSerializer(serializers.Serializer):
 
     def get_unidad(self, solicitud):
         return {"id": solicitud.unidad_id, "nombre": solicitud.unidad.nombre} if solicitud.unidad else None
+
+
+class SolicitudParaAdministrarSerializer(SolicitudSerializer):
+    residente = serializers.SerializerMethodField()
+    motivo_decision = serializers.CharField()
+    decidida_por = serializers.SerializerMethodField()
+    decidida_en = serializers.DateTimeField()
+
+    def get_residente(self, solicitud):
+        return {
+            "id": solicitud.persona_id,
+            "nombre": f"{solicitud.persona.nombres} {solicitud.persona.apellidos}",
+        }
+
+    def get_decidida_por(self, solicitud):
+        if not solicitud.decidida_por:
+            return None
+        return {
+            "id": solicitud.decidida_por_id,
+            "nombre": f"{solicitud.decidida_por.nombres} {solicitud.decidida_por.apellidos}",
+        }
 
 
 class DetalleDeSolicitudSerializer(SolicitudSerializer):

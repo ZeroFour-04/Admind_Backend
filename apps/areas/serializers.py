@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 MENSAJE_HORARIO = "La hora de cierre debe ser posterior a la de apertura."
+MENSAJE_DURACION_MINIMA = "Cada reserva debe durar al menos 2 horas (120 minutos)."
 
 
 def validar_horario(apertura, cierre):
@@ -13,7 +14,9 @@ class CrearAreaSerializer(serializers.Serializer):
     descripcion = serializers.CharField(allow_blank=True, required=False, default="")
     hora_apertura = serializers.TimeField()
     hora_cierre = serializers.TimeField()
-    duracion_franja_minutos = serializers.IntegerField(min_value=1, max_value=1440)
+    duracion_franja_minutos = serializers.IntegerField(
+        min_value=120, max_value=1440, error_messages={"min_value": MENSAJE_DURACION_MINIMA}
+    )
 
     def validate(self, datos):
         validar_horario(datos["hora_apertura"], datos["hora_cierre"])
@@ -27,7 +30,12 @@ class EditarAreaSerializer(serializers.Serializer):
     descripcion = serializers.CharField(allow_blank=True, required=False)
     hora_apertura = serializers.TimeField(required=False)
     hora_cierre = serializers.TimeField(required=False)
-    duracion_franja_minutos = serializers.IntegerField(min_value=1, max_value=1440, required=False)
+    duracion_franja_minutos = serializers.IntegerField(
+        min_value=120,
+        max_value=1440,
+        required=False,
+        error_messages={"min_value": MENSAJE_DURACION_MINIMA},
+    )
     en_mantenimiento = serializers.BooleanField(required=False)
 
     def validate(self, datos):

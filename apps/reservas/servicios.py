@@ -85,6 +85,10 @@ class IncumpleReglas(Exception):
         self.motivos = motivos
 
 
+class DecisionNoPermitida(Exception):
+    """Solo las solicitudes enviadas y aún apartadas pueden decidirse."""
+
+
 def inicio_de(fecha, hora):
     """El momento en que empieza la franja, en la zona horaria del conjunto (America/Bogota)."""
     return timezone.make_aware(datetime.combine(fecha, hora))
@@ -175,6 +179,66 @@ def solicitudes_de(persona):
     """Solo las propias (plan P14). La bandeja del administrador es HU-14."""
     expirar_vencidas()
     return Solicitud.objects.filter(persona=persona).select_related("area", "unidad").order_by("-creada_en")
+
+
+def solicitudes_para_area(area):
+    """Solicitudes enviadas y su historial de decisiones para la bandeja administrativa del área."""
+    return (
+        Solicitud.objects.filter(
+            area=area,
+            estado__in=[EstadoSolicitud.APARTADA, EstadoSolicitud.RESERVADA, EstadoSolicitud.RECHAZADA],
+        )
+        .select_related("area", "persona", "unidad", "decidida_por")
+        .order_by("-creada_en")
+    )
+
+
+def solicitudes_para_bandeja():
+    """Reservas enviadas o decididas del conjunto activo, para la pestaña general de Solicitudes."""
+    return (
+        Solicitud.objects.filter(
+            estado__in=[EstadoSolicitud.APARTADA, EstadoSolicitud.RESERVADA, EstadoSolicitud.RECHAZADA]
+        )
+        .select_related("area", "persona", "unidad", "decidida_por")
+        .order_by("-creada_en")
+    )
+
+
+def decidir_solicitud(actor, solicitud_id, decision, motivo):
+    """Acepta o rechaza una solicitud enviada y registra la decisión en auditoría."""
+    if decision not in (EstadoSolicitud.RESERVADA, EstadoSolicitud.RECHAZADA):
+        raise ValueError("La decisión debe ser RESERVADA o RECHAZADA.")
+    motivo = motivo.strip()
+    if not motivo:
+        raise ValueError("El motivo de la decisión es obligatorio.")
+
+    with transaction.atomic():
+        solicitud = (
+            Solicitud.objects.select_for_update()
+            .select_related("area")
+            .filter(pk=solicitud_id)
+            .first()
+        )
+        if solicitud is None:
+            raise SolicitudNoEncontrada()
+        if solicitud.estado != EstadoSolicitud.APARTADA:
+            raise DecisionNoPermitida()
+
+        estado_anterior = solicitud.estado
+        solicitud.estado = decision
+        solicitud.motivo_decision = motivo
+        solicitud.decidida_por = actor
+        solicitud.decidida_en = timezone.now()
+        solicitud.save(update_fields=["estado", "motivo_decision", "decidida_por", "decidida_en"])
+        auditoria.registrar(
+            actor,
+            "reserva.aprobar" if decision == EstadoSolicitud.RESERVADA else "reserva.rechazar",
+            "Solicitud",
+            solicitud.id,
+            antes={"estado": estado_anterior},
+            despues={"estado": decision, "motivo": motivo},
+        )
+    return solicitud
 
 
 def detalle(persona, solicitud_id):

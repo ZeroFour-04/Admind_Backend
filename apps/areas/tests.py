@@ -137,6 +137,24 @@ def test_el_cierre_debe_ser_posterior_a_la_apertura(admin, salon):
     assert admin.patch(f"/areas/{salon['id']}/", {"hora_apertura": "23:00"}, format="json").status_code == 400
 
 
+def test_la_duracion_minima_de_una_franja_es_de_dos_horas(admin, salon):
+    crear_minima = admin.post(
+        "/areas/", {**SALON, "nombre": "BBQ", "duracion_franja_minutos": 120}, format="json"
+    )
+    crear = admin.post(
+        "/areas/", {**SALON, "nombre": "Gimnasio", "duracion_franja_minutos": 119}, format="json"
+    )
+    editar = admin.patch(
+        f"/areas/{salon['id']}/", {"duracion_franja_minutos": 119}, format="json"
+    )
+
+    assert crear_minima.status_code == 201
+    assert crear.status_code == 400
+    assert editar.status_code == 400
+    assert "duracion_franja_minutos" in crear.json()
+    assert "duracion_franja_minutos" in editar.json()
+
+
 def test_nombre_repetido_en_el_mismo_conjunto_responde_400(admin, salon):
     respuesta = admin.post("/areas/", SALON, format="json")
 

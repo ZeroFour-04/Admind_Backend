@@ -202,12 +202,29 @@ def test_cada_quien_ve_la_suya_como_propia_y_la_ajena_sin_saber_de_quien_es(pedr
 
 
 def test_una_franja_que_ya_empezo_no_se_toma(pedro, torres):
-    madrugada = crear_area(torres, "Cancha", hora_apertura=time(0), hora_cierre=time(23), duracion_franja_minutos=60)
+    madrugada = crear_area(torres, "Cancha", hora_apertura=time(0), hora_cierre=time(23), duracion_franja_minutos=120)
     hoy = timezone.localdate()
 
     assert tomar(pedro, madrugada, "00:00", hoy).status_code == 400
     assert franjas(pedro, madrugada, hoy)["00:00"] == "pasada"
     assert tomar(pedro, madrugada, "08:30").status_code == 400  # no es el inicio de ninguna franja
+
+
+def test_las_reservas_respetan_el_horario_de_apertura_y_cierre(pedro, torres):
+    area = crear_area(
+        torres, "Gimnasio", hora_apertura=time(10), hora_cierre=time(18), duracion_franja_minutos=120
+    )
+
+    respuesta_franjas = pedro.get("/reservas/franjas/", {"area": str(area.id), "fecha": str(MANANA)})
+
+    assert [
+        (franja["hora_inicio"], franja["hora_fin"]) for franja in respuesta_franjas.json()["franjas"]
+    ] == [("10:00", "12:00"), ("12:00", "14:00"), ("14:00", "16:00"), ("16:00", "18:00")]
+    assert tomar(pedro, area, "08:00").status_code == 400
+    assert tomar(pedro, area, "18:00").status_code == 400
+    reserva = tomar(pedro, area, "16:00")
+    assert reserva.status_code == 201
+    assert reserva.json()["hora_fin"] == "18:00"
 
 
 def test_solo_se_ven_las_solicitudes_propias(pedro, lucia, salon):
@@ -325,6 +342,113 @@ def test_una_solicitud_valida_queda_apartada_y_se_avisa_a_la_administracion(
     assert avisados == ["Andrés", "Sofía"]
     assert aviso.titulo == "Nueva solicitud de reserva"
     assert f"Salón comunal el {MANANA_EN_LETRAS}" in aviso.cuerpo
+
+
+def test_secretaria_consulta_solicitudes_del_area_y_puede_aceptar_con_motivo(
+    torres, salon, pedro, lucia, apartamentos, administracion
+):
+    enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
+    secretaria = cliente_para("secretaria@torres.com")
+
+    listado = secretaria.get(f"/reservas/areas/{salon.id}/solicitudes/")
+
+    assert listado.status_code == 200
+    assert len(listado.json()) == 1
+    assert listado.json()[0]["residente"]["nombre"] == "Pedro Gómez"
+    assert listado.json()[0]["motivo"] == "Cumpleaños"
+
+    respuesta = secretaria.post(
+        f"/reservas/solicitudes/{enviada['id']}/decision/",
+        {"decision": "RESERVADA", "motivo": "Aforo y horario verificados."},
+        format="json",
+    )
+
+    assert respuesta.status_code == 200
+    assert (respuesta.json()["estado"], respuesta.json()["motivo_decision"]) == (
+        "RESERVADA", "Aforo y horario verificados."
+    )
+    assert franjas(pedro, salon)["08:00"] == "propia"
+    assert franjas(lucia, salon)["08:00"] == "reservada"
+    with usar_conjunto(torres.id):
+        guardada = Solicitud.objects.get(pk=enviada["id"])
+        registro = Registro.objects.get(accion="reserva.aprobar", entidad_id=enviada["id"])
+    assert guardada.decidida_por.nombres == "Carlos"
+    assert guardada.decidida_en is not None
+    assert registro.despues == {"estado": "RESERVADA", "motivo": "Aforo y horario verificados."}
+
+
+def test_rechazar_solicitud_requiere_motivo_y_libera_la_franja(
+    torres, salon, pedro, lucia, apartamentos, administracion
+):
+    enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
+    secretaria = cliente_para("secretaria@torres.com")
+
+    sin_motivo = secretaria.post(
+        f"/reservas/solicitudes/{enviada['id']}/decision/",
+        {"decision": "RECHAZADA", "motivo": "   "},
+        format="json",
+    )
+    rechazada = secretaria.post(
+        f"/reservas/solicitudes/{enviada['id']}/decision/",
+        {"decision": "RECHAZADA", "motivo": "No se adjuntó el soporte requerido."},
+        format="json",
+    )
+
+    assert sin_motivo.status_code == 400
+    assert rechazada.status_code == 200
+    assert (rechazada.json()["estado"], rechazada.json()["motivo_decision"]) == (
+        "RECHAZADA", "No se adjuntó el soporte requerido."
+    )
+    assert franjas(lucia, salon)["08:00"] == "libre"
+
+
+def test_no_se_puede_decidir_dos_veces_ni_consultar_solicitudes_de_otro_area(
+    torres, salon, pedro, apartamentos, administracion
+):
+    enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
+    secretaria = cliente_para("secretaria@torres.com")
+    otra_area = crear_area(torres, "Piscina")
+
+    assert secretaria.get(f"/reservas/areas/{otra_area.id}/solicitudes/").json() == []
+    decision = {"decision": "RESERVADA", "motivo": "Aprobada."}
+    assert secretaria.post(f"/reservas/solicitudes/{enviada['id']}/decision/", decision, format="json").status_code == 200
+    repetida = secretaria.post(
+        f"/reservas/solicitudes/{enviada['id']}/decision/",
+        {"decision": "RECHAZADA", "motivo": "Cambio de opinión."},
+        format="json",
+    )
+    assert repetida.status_code == 409
+
+
+def test_bandeja_general_lista_solicitudes_enviadas_aceptadas_y_rechazadas(
+    torres, salon, pedro, lucia, apartamentos, administracion
+):
+    secretaria = cliente_para("secretaria@torres.com")
+    aceptada = enviar(pedro, tomar(pedro, salon, "08:00").json()["id"], apartamentos[0]).json()
+    assert secretaria.post(
+        f"/reservas/solicitudes/{aceptada['id']}/decision/",
+        {"decision": "RESERVADA", "motivo": "Horario aprobado."},
+        format="json",
+    ).status_code == 200
+
+    enviada = enviar(lucia, tomar(lucia, salon, "12:00").json()["id"], apartamentos[1]).json()
+    assert secretaria.post(
+        f"/reservas/solicitudes/{enviada['id']}/decision/",
+        {"decision": "RECHAZADA", "motivo": "Falta autorización."},
+        format="json",
+    ).status_code == 200
+    otra_enviada = enviar(pedro, tomar(pedro, salon, "16:00").json()["id"], apartamentos[0])
+    assert otra_enviada.status_code == 200
+
+    respuesta = secretaria.get("/reservas/bandeja/")
+
+    assert respuesta.status_code == 200
+    por_id = {str(item["id"]): item for item in respuesta.json()}
+    assert por_id[aceptada["id"]]["estado"] == "RESERVADA"
+    assert por_id[aceptada["id"]]["motivo_decision"] == "Horario aprobado."
+    assert por_id[enviada["id"]]["estado"] == "RECHAZADA"
+    assert por_id[enviada["id"]]["motivo_decision"] == "Falta autorización."
+    assert por_id[otra_enviada.json()["id"]]["estado"] == "APARTADA"
 
 
 def test_si_incumple_tres_reglas_ve_los_tres_motivos_y_se_libera_el_bloqueo(

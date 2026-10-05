@@ -27,7 +27,9 @@ class Area(ModeloDeConjunto):
             *ModeloDeConjunto.Meta.constraints,
             models.UniqueConstraint(fields=["conjunto", "nombre"], name="area_nombre_unico_en_conjunto"),
             models.CheckConstraint(condition=Q(hora_cierre__gt=F("hora_apertura")), name="area_horario_coherente"),
-            models.CheckConstraint(condition=Q(duracion_franja_minutos__gt=0), name="area_duracion_franja_positiva"),
+            models.CheckConstraint(
+                condition=Q(duracion_franja_minutos__gte=120), name="area_duracion_franja_minima"
+            ),
         ]
 
     def __str__(self):

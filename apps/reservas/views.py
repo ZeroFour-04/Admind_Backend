@@ -9,10 +9,12 @@ from apps.permisos.views import exigir_permiso
 from apps.reservas import servicios
 from apps.reservas.serializers import (
     ConsultarFranjasSerializer,
+    DecisionDeSolicitudSerializer,
     DetalleDeSolicitudSerializer,
     EnviarSolicitudSerializer,
     FranjaSerializer,
     SolicitudSerializer,
+    SolicitudParaAdministrarSerializer,
     TomarBloqueoSerializer,
 )
 
@@ -95,6 +97,48 @@ class SolicitudesView(VistaDeConjunto):
                 status=status.HTTP_409_CONFLICT,
             )
         return Response(DetalleDeSolicitudSerializer(solicitud).data, status=status.HTTP_201_CREATED)
+
+
+class SolicitudesDeAreaView(VistaDeConjunto):
+    def get(self, request, area_id):
+        exigir_permiso(request, "reserva.ver_todas", "reserva.aprobar", "reserva.rechazar")
+        area = area_del_conjunto(area_id)
+        return Response(
+            SolicitudParaAdministrarSerializer(servicios.solicitudes_para_area(area), many=True).data
+        )
+
+
+class BandejaDeSolicitudesView(VistaDeConjunto):
+    def get(self, request):
+        exigir_permiso(request, "reserva.ver_todas", "reserva.aprobar", "reserva.rechazar")
+        return Response(
+            SolicitudParaAdministrarSerializer(servicios.solicitudes_para_bandeja(), many=True).data
+        )
+
+
+class DecidirSolicitudView(VistaDeConjunto):
+    def post(self, request, solicitud_id):
+        exigir_permiso(request, "reserva.aprobar", "reserva.rechazar")
+        datos = DecisionDeSolicitudSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        decision = datos.validated_data["decision"]
+        permiso = "reserva.aprobar" if decision == "RESERVADA" else "reserva.rechazar"
+        exigir_permiso(request, permiso)
+        try:
+            solicitud = servicios.decidir_solicitud(
+                request.user.persona,
+                solicitud_id,
+                decision,
+                datos.validated_data["motivo"],
+            )
+        except servicios.SolicitudNoEncontrada:
+            raise NotFound()
+        except servicios.DecisionNoPermitida:
+            return Response(
+                {"detail": "Solo se pueden decidir solicitudes que estén apartadas."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(SolicitudParaAdministrarSerializer(solicitud).data)
 
 
 class DetalleDeSolicitudView(VistaDeConjunto):

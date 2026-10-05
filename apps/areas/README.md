@@ -7,6 +7,7 @@ Catálogo de zonas comunes de cada conjunto: salón comunal, piscina, gimnasio y
 ## Qué va aquí
 
 - Modelo de área por conjunto: se identifica por nombre dentro del conjunto, sin tipo ni clasificación
+- Cada franja reservable dura al menos 120 minutos (2 horas)
 - Plantilla de **condiciones del alquiler** por área, que precarga la aprobación de una reserva
 
 ## Con qué se conecta

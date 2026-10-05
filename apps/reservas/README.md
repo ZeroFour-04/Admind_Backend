@@ -12,6 +12,7 @@ El flujo de reserva de zonas comunes. El orden de llegada decide quién puede pe
 - **Dos oportunidades** por par `(residente, franja)`; solo cuenta el vencimiento (R9)
 - Aprobación con **condiciones del alquiler** obligatorias, congeladas al aprobar y versionadas si cambian
 - Rechazo con categoría obligatoria: `NO_DISPONIBLE`, `CONDICIONES_NO_CUMPLIDAS`, `DOCUMENTACION_INCOMPLETA`, `INCUMPLE_REGLAMENTO`, `OTRO`
+- Bandeja administrativa por zona común para revisar solicitudes enviadas, aceptar o rechazar con motivo auditado
 - Pago **declarado**, no validado: `pago_declarado_por`, `fecha_declaracion` y comprobante
 - **Campana:** suscripción a una franja concreta, que se consume al notificar
 - Fechas de **alta demanda**, con FIFO puro sobre el momento de tomar el bloqueo

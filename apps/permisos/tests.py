@@ -59,14 +59,14 @@ def test_administracion_puede_crear_conjuntos_desde_el_conjunto_activo():
     assert "conjunto.crear" in PERMISOS_POR_ROL[Rol.ADMINISTRACION]
 
 
-def test_administracion_y_superusuario_pueden_aprobar_reservas():
+def test_administracion_secretaria_y_superusuario_pueden_aprobar_reservas():
     con_aprobacion = {rol for rol, permisos in PERMISOS_POR_ROL.items() if "reserva.aprobar" in permisos}
 
-    assert con_aprobacion == {Rol.ADMINISTRACION, Rol.SUPERUSUARIO}
+    assert con_aprobacion == {Rol.ADMINISTRACION, Rol.SECRETARIA, Rol.SUPERUSUARIO}
 
 
-def test_secretaria_no_tiene_ningun_permiso_de_aprobacion():
-    assert not any(p.endswith(".aprobar") for p in PERMISOS_POR_ROL[Rol.SECRETARIA])
+def test_secretaria_puede_ver_areas_y_reservas():
+    assert {"area.ver", "reserva.ver_todas", "reserva.aprobar", "reserva.rechazar"} <= PERMISOS_POR_ROL[Rol.SECRETARIA]
 
 
 def test_residente_no_tiene_permisos_sensibles():

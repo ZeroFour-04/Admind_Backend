@@ -72,6 +72,7 @@ PERMISOS_POR_ROL = {
         "parqueadero.ver", "parqueadero.asignar",
     }),
     Rol.SECRETARIA: frozenset({
+        "area.ver", "reserva.ver_todas", "reserva.aprobar", "reserva.rechazar",
         "solicitud.bandeja_ver", "solicitud.priorizar", "solicitud.rechazar_formal",
         "anuncio.publicar", "anuncio.dirigir",
     }),

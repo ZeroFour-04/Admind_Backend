@@ -51,6 +51,11 @@ class Solicitud(ModeloDeConjunto):
     # Copia de cada regla evaluada al enviar (plan P10): explica el resultado aunque la regla cambie después.
     evaluacion = models.JSONField(null=True, blank=True, encoder=DjangoJSONEncoder)
     evaluada_en = models.DateTimeField(null=True, blank=True)
+    motivo_decision = models.TextField(blank=True)
+    decidida_por = models.ForeignKey(
+        "personas.Persona", on_delete=models.PROTECT, null=True, blank=True, related_name="decisiones_reserva"
+    )
+    decidida_en = models.DateTimeField(null=True, blank=True)
     creada_en = models.DateTimeField(auto_now_add=True)
     enviada_en = models.DateTimeField(null=True, blank=True)
 

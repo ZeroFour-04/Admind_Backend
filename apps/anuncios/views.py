@@ -1,4 +1,5 @@
 """Anuncios del conjunto activo (HU-25). Cada vista valida, exige su permiso y llama al servicio."""
+from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.response import Response
@@ -27,12 +28,17 @@ class AnunciosView(VistaDeConjunto):
         exigir_permiso(request, permiso or "anuncio.publicar")
         datos = PublicarAnuncioSerializer(data=request.data)
         datos.is_valid(raise_exception=True)
+        campos = dict(datos.validated_data)
+        # De cada foto se lee un byte más del tope: basta para saber que se pasa, sin cargar un archivo enorme.
+        fotos = [foto.read(servicios.TAMANO_MAXIMO_FOTO + 1) for foto in campos.pop("fotos", [])]
         try:
-            anuncio = servicios.publicar(request.user.persona, **datos.validated_data)
+            anuncio = servicios.publicar(request.user.persona, **campos, fotos=fotos)
         except servicios.UnidadNoEncontrada:
             return Response(
                 {"unidad": ["Esa vivienda no existe en este conjunto."]}, status=status.HTTP_400_BAD_REQUEST
             )
+        except servicios.FotoInvalida as error:
+            return Response({"fotos": [error.mensaje]}, status=status.HTTP_400_BAD_REQUEST)
         return Response(AnuncioSerializer(anuncio, context=contexto(request)).data, status=status.HTTP_201_CREATED)
 
 
@@ -57,3 +63,13 @@ class DetalleDeAnuncioView(VistaDeConjunto):
         datos.is_valid(raise_exception=True)
         servicios.editar(anuncio, **datos.validated_data)
         return Response(AnuncioSerializer(anuncio, context=datos_de_permiso).data)
+
+
+class FotoDeAnuncioView(VistaDeConjunto):
+    """La imagen de una foto. Se entrega a quien puede ver el anuncio; a los demás, 404."""
+
+    def get(self, request, anuncio_id, foto_id):
+        foto = servicios.foto_visible(request.user.persona, request.auth.conjunto_activo_id, anuncio_id, foto_id)
+        if foto is None:
+            raise NotFound()
+        return HttpResponse(bytes(foto.contenido), content_type=foto.tipo)

@@ -3,6 +3,9 @@ from django.db.models import Q
 
 from apps.comun.modelos_base.modelos import ModeloDeConjunto
 
+# Cuántas fotos lleva un anuncio como máximo. La base lo hace cumplir (ver FotoDeAnuncio).
+MAXIMO_DE_FOTOS = 4
+
 
 class Alcance(models.TextChoices):
     """Los dos alcances de un anuncio (maestro §5.7). Ninguno es una lista de personas."""
@@ -38,3 +41,27 @@ class Anuncio(ModeloDeConjunto):
 
     def __str__(self):
         return self.titulo
+
+
+class FotoDeAnuncio(ModeloDeConjunto):
+    """Una foto del anuncio (HU-25). Va en su propia tabla para que leer un Anuncio no traiga la imagen.
+
+    Se suben al publicar y no cambian después. Cada foto ocupa un `orden` distinto, de 0 a
+    MAXIMO_DE_FOTOS - 1: con eso la base no deja guardar una foto de más.
+    """
+
+    # La FK compuesta impide que apunte a un anuncio de otro conjunto.
+    anuncio = models.ForeignKey(Anuncio, on_delete=models.PROTECT, related_name="fotos")
+    contenido = models.BinaryField()
+    # El tipo real, leído de la firma del archivo; nunca el que declara quien la sube.
+    tipo = models.CharField(max_length=20)
+    orden = models.PositiveSmallIntegerField()
+
+    class Meta(ModeloDeConjunto.Meta):
+        ordering = ["orden"]
+        constraints = [
+            *ModeloDeConjunto.Meta.constraints,
+            models.UniqueConstraint(fields=["anuncio", "orden"], name="foto_orden_unico_por_anuncio"),
+            models.CheckConstraint(condition=Q(orden__lt=MAXIMO_DE_FOTOS), name="foto_orden_dentro_del_tope"),
+        ]
+        indexes = [models.Index(fields=["conjunto", "anuncio", "orden"], name="foto_de_anuncio")]

@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework.views import APIView
 
-from apps.anuncios.models import Anuncio
+from apps.anuncios.models import Anuncio, FotoDeAnuncio
 from apps.auditoria.models import Registro
 from apps.areas.models import Area as AreaComun
 from apps.comun.aislamiento.contexto import usar_conjunto
@@ -223,6 +223,13 @@ def detalle_de_anuncio(otro_conjunto):
     return reverse("anuncio-detalle", kwargs={"anuncio_id": anuncio_de(otro_conjunto).pk})
 
 
+def foto_de_anuncio(otro_conjunto):
+    anuncio = anuncio_de(otro_conjunto)
+    with usar_conjunto(otro_conjunto.id):
+        foto = FotoDeAnuncio.objects.create(anuncio=anuncio, contenido=b"\x89PNG\r\n\x1a\n", tipo="image/png", orden=0)
+    return reverse("anuncio-foto", kwargs={"anuncio_id": anuncio.pk, "foto_id": foto.pk})
+
+
 def listado_de_anuncios(otro_conjunto):
     return reverse("anuncios"), str(anuncio_de(otro_conjunto).pk)
 
@@ -341,6 +348,7 @@ DETALLES = {
     "pruebas-area-detalle": detalle_de_area,
     "usuario-detalle": detalle_de_usuario,
     "anuncio-detalle": detalle_de_anuncio,
+    "anuncio-foto": foto_de_anuncio,
     "area-detalle": detalle_de_area_comun,
     "unidad-detalle": detalle_de_unidad,
     "regla-detalle": detalle_de_regla,

@@ -8,10 +8,17 @@ import re
 
 import qrcode
 import qrcode.image.svg
+from django.conf import settings
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.core.mail import send_mail
 from django.db import transaction
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
+from apps.cuentas.models import TokenDeSesion
+from apps.cuentas.servicios import EnlaceInvalido, puede_entrar, usuario_del_enlace
 from apps.permisos.servicios import tiene_permisos_sensibles
 
 CANTIDAD_DE_CODIGOS_DE_RESPALDO = 10
@@ -128,3 +135,67 @@ def limpiar(codigo):
 def marcar_verificada(sesion):
     sesion.dos_factores_verificado = True
     sesion.save(update_fields=["dos_factores_verificado"])
+
+
+# Sin la aplicación ni los códigos de respaldo: se quita por correo y se configura de nuevo (HU-02)
+
+
+class EnlaceParaQuitarlo(PasswordResetTokenGenerator):
+    """Firma el enlace que quita el segundo factor, como Django firma el de la contraseña.
+
+    A lo que Django ya firma (la cuenta, su contraseña y la hora) se le suma el dispositivo
+    configurado: al borrarlo, el enlace deja de servir. La sal propia hace que un enlace de
+    recuperar la contraseña no sirva aquí, ni este allá.
+    """
+
+    key_salt = "apps.cuentas.dos_factores.EnlaceParaQuitarlo"
+
+    def _make_hash_value(self, usuario, marca_de_tiempo):
+        totp = dispositivo(usuario)
+        return f"{super()._make_hash_value(usuario, marca_de_tiempo)}{totp.pk if totp else ''}"
+
+
+enlace_para_quitarlo = EnlaceParaQuitarlo()
+
+
+def solicitar_restablecimiento(usuario):
+    """Envía al correo de la cuenta el enlace que quita su segundo factor.
+
+    Quien lo pide ya entró con su contraseña: la vista exige la sesión. El correo no pasa por el
+    canal de notificaciones, igual que el de la contraseña: aquí puede no haber conjunto activo.
+    """
+    if dispositivo(usuario) is None:
+        raise SinConfigurar()
+    uid = urlsafe_base64_encode(force_bytes(usuario.pk))
+    token = enlace_para_quitarlo.make_token(usuario)
+    enlace = f"{settings.ADMIND_FRONT_URL}/segundo-factor/restablecer/{uid}/{token}/"
+    minutos = settings.PASSWORD_RESET_TIMEOUT // 60
+    send_mail(
+        subject="AdMind: restablece la verificación en dos pasos",
+        message=(
+            f"Hola, {usuario.persona.nombres}.\n\n"
+            f"Pediste ayuda con la verificación en dos pasos de AdMind. Si perdiste la aplicación "
+            f"de autenticación y tus códigos de respaldo, abre este enlace para quitarla:\n\n"
+            f"{enlace}\n\n"
+            f"Al confirmarlo se cierran tus sesiones y, cuando vuelvas a entrar, la configuras de "
+            f"nuevo. El enlace sirve una sola vez y vence en {minutos} minutos.\n\n"
+            f"Si no lo pediste, no abras el enlace y cambia tu contraseña: alguien entró con ella."
+        ),
+        from_email=None,
+        recipient_list=[usuario.correo],
+    )
+
+
+def restablecer(uid, token):
+    """Quita el segundo factor de la cuenta del enlace y cierra sus sesiones abiertas.
+
+    Borra el secreto y los códigos de respaldo: son credenciales perdidas, no registros del
+    conjunto. Al volver a entrar, quien tiene permisos sensibles configura uno nuevo antes de seguir.
+    """
+    usuario = usuario_del_enlace(uid)
+    if usuario is None or not puede_entrar(usuario) or not enlace_para_quitarlo.check_token(usuario, token):
+        raise EnlaceInvalido()
+    with transaction.atomic():
+        TOTPDevice.objects.filter(user=usuario).delete()
+        StaticDevice.objects.filter(user=usuario).delete()
+        TokenDeSesion.objects.filter(usuario=usuario).delete()

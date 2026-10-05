@@ -50,7 +50,7 @@ def crear(actor, area_id, tipo, parametros, vigencia_desde):
     area = Area.objects.filter(pk=area_id, activo=True).first()
     if area is None:
         raise AreaNoEncontrada()
-    normalizados = catalogo.validar(tipo, parametros, area)
+    normalizados = catalogo.validar(tipo, parametros)
     with transaction.atomic():
         regla = Regla.objects.create(
             area=area, tipo=tipo, parametros=normalizados, vigencia_desde=vigencia_desde, creada_por=actor
@@ -69,7 +69,7 @@ def editar(actor, regla, parametros):
     """Cierra la regla y crea la versión nueva que la reemplaza, con autor y fecha (HU-10)."""
     if regla.vigencia_hasta is not None:
         raise ReglaCerrada()
-    normalizados = catalogo.validar(regla.tipo, parametros, regla.area)
+    normalizados = catalogo.validar(regla.tipo, parametros)
     antes = datos_de_la_regla(regla)
     inicio = max(timezone.localdate(), regla.vigencia_desde)
     with transaction.atomic():

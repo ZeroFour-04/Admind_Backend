@@ -1,7 +1,5 @@
 from rest_framework import serializers
 
-from apps.areas.models import Clasificacion
-
 MENSAJE_HORARIO = "La hora de cierre debe ser posterior a la de apertura."
 
 
@@ -13,8 +11,6 @@ def validar_horario(apertura, cierre):
 class CrearAreaSerializer(serializers.Serializer):
     nombre = serializers.CharField(max_length=80)
     descripcion = serializers.CharField(allow_blank=True, required=False, default="")
-    # Obligatoria y sin valor por defecto: hay que elegirla de la lista cerrada (HU-09).
-    clasificacion = serializers.ChoiceField(choices=Clasificacion.choices)
     hora_apertura = serializers.TimeField()
     hora_cierre = serializers.TimeField()
     duracion_franja_minutos = serializers.IntegerField(min_value=1, max_value=1440)
@@ -25,7 +21,7 @@ class CrearAreaSerializer(serializers.Serializer):
 
 
 class EditarAreaSerializer(serializers.Serializer):
-    """Nombre, descripción, horario y mantenimiento. La clasificación no se cambia aquí."""
+    """Nombre, descripción, horario y mantenimiento."""
 
     nombre = serializers.CharField(max_length=80, required=False)
     descripcion = serializers.CharField(allow_blank=True, required=False)
@@ -44,9 +40,6 @@ class AreaSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     nombre = serializers.CharField()
     descripcion = serializers.CharField()
-    clasificacion = serializers.CharField()
-    clasificacion_nombre = serializers.CharField(source="get_clasificacion_display")
-    es_esencial = serializers.BooleanField()
     hora_apertura = serializers.TimeField(format="%H:%M")
     hora_cierre = serializers.TimeField(format="%H:%M")
     duracion_franja_minutos = serializers.IntegerField()

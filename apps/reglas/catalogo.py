@@ -79,8 +79,8 @@ PARAMETROS_POR_TIPO = {
 }
 
 
-def validar(tipo, parametros, area):
-    """Los parámetros normalizados, o `ParametrosInvalidos`. Una regla beta nunca relaja una alfa."""
+def validar(tipo, parametros):
+    """Los parámetros normalizados, o `ParametrosInvalidos`."""
     if not isinstance(parametros, dict):
         raise ParametrosInvalidos({"parametros": ["Deben ser un objeto con los parámetros del tipo."]})
     esperados = PARAMETROS_POR_TIPO[tipo]
@@ -106,9 +106,6 @@ def validar(tipo, parametros, area):
             errores["hasta"] = ["La hora final debe ser posterior a la inicial."]
     if tipo == TipoDeRegla.DIAS_NO_RESERVABLES and not normalizados["dias_semana"] and not normalizados["fechas"]:
         errores["parametros"] = ["Indica al menos un día de la semana o una fecha."]
-    if tipo == TipoDeRegla.REQUIERE_PAZ_Y_SALVO and area.es_esencial:
-        # Regla alfa: la mora solo restringe áreas no esenciales (maestro §5.10).
-        errores["parametros"] = ["Un área común esencial no se puede restringir por mora."]
     if errores:
         raise ParametrosInvalidos(errores)
     return normalizados

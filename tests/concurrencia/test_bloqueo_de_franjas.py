@@ -9,7 +9,7 @@ import pytest
 from django.db import connection
 from django.utils import timezone
 
-from apps.areas.models import Area, Clasificacion
+from apps.areas.models import Area
 from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.conjuntos.models import Conjunto
 from apps.permisos.catalogo import Rol
@@ -30,8 +30,7 @@ def residentes_con_area(cantidad):
     personas = []
     with usar_conjunto(torres.id):
         salon = Area.objects.create(
-            nombre="Salón comunal", clasificacion=Clasificacion.COMUN, hora_apertura=time(8), hora_cierre=time(22),
-            duracion_franja_minutos=240,
+            nombre="Salón comunal", hora_apertura=time(8), hora_cierre=time(22), duracion_franja_minutos=240,
         )
         for numero in range(cantidad):
             persona = Persona.objects.create(

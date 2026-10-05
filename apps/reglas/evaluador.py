@@ -69,8 +69,7 @@ def dias_no_reservables(solicitud, p):
 
 
 def requiere_paz_y_salvo(solicitud, p):
-    # La mora solo restringe áreas no esenciales (regla alfa, maestro §5.10).
-    if solicitud.area.es_esencial or not mora.unidad_en_mora(solicitud.unidad):
+    if not mora.unidad_en_mora(solicitud.unidad):
         return ""
     return "El apartamento no está a paz y salvo con la administración."
 

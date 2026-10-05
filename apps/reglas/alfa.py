@@ -1,7 +1,6 @@
 """Reglas alfa: en código, siempre activas; el administrador no las desactiva (maestro §5.10, HU-13).
 
-«La mora solo aplica a áreas no esenciales» vive en `REQUIERE_PAZ_Y_SALVO` y en la validación del
-catálogo. Las alfas de piscina (acompañante de menores, salvavidas) y de cobro quedan fuera: todavía
+Las alfas de piscina (acompañante de menores, salvavidas) y de cobro quedan fuera: todavía
 no hay datos con qué evaluarlas.
 """
 from dataclasses import dataclass, field

@@ -14,6 +14,7 @@ Alcance: Núcleo (§3.1).
 - Creación de usuarios con un rol asignado en el conjunto activo
 - 2FA TOTP con `django-otp`, **obligatorio para todo usuario con algún permiso sensible** (`dos_factores.py`)
 - Permiso de DRF que exige el 2FA verificado a quien tenga permisos sensibles (`permisos.py`, §7.2 punto 4)
+- Salida para quien perdió la aplicación de autenticación y los códigos de respaldo: un enlace de un solo uso al correo de la cuenta quita el 2FA y cierra sus sesiones; al volver a entrar se configura de nuevo (`dos_factores.py`). Lo pide solo quien ya entró con su contraseña, con un límite de 3 por hora por cuenta (`limites.py`)
 - Comando solo para pruebas en local: `python manage.py crear_usuarios_prueba` crea un conjunto de prueba y un usuario por rol (`<rol>@example.com`), con la contraseña que se pide al ejecutarlo
 
 ## API
@@ -34,6 +35,8 @@ Todas las rutas exigen `Authorization: Token <token>`, salvo las marcadas *públ
 | `POST` | `/auth/dos-factores/configurar/` | *Sin 2FA.* Genera el secreto y el QR | 200 con `qr`, `clave` y `enlace` · 409 si ya está configurado |
 | `POST` | `/auth/dos-factores/activar/` | *Sin 2FA.* Confirma el secreto con el primer `codigo` | 200 con los 10 `codigos_de_respaldo` y el estado de la sesión · 400 si el código no sirve |
 | `POST` | `/auth/dos-factores/verificar/` | *Sin 2FA.* Verifica un `codigo` de la aplicación o uno de respaldo | 200 con el estado de la sesión · 400 si el código no sirve |
+| `POST` | `/auth/dos-factores/restablecer/` | *Sin 2FA.* Envía al correo de la cuenta el enlace que quita el segundo factor | 202 · 400 si no tiene uno configurado · 429 al cuarto pedido en una hora para la misma cuenta |
+| `POST` | `/auth/dos-factores/restablecer/confirmar/` | *Pública.* Con `uid` y `token`, borra el segundo factor y los códigos de respaldo y cierra las sesiones abiertas | 204 · 400 si el enlace no sirve |
 
 El **estado de la sesión** es `{conjunto_activo, permisos, dos_factores: {requerido, configurado, verificado}}`.
 
@@ -54,3 +57,5 @@ Maestro §3.1, §5.3, §7.1, §7.2 · HU-01, HU-02, HU-26
 - `send_mail` es síncrono y sin `try`: si el servidor de correo falla, `/auth/recuperar/` responde 500 solo cuando la cuenta existe
 - El límite de enlaces vive en memoria: se pierde al reiniciar el servidor y no se comparte entre procesos
 - `/auth/login/` no limita intentos de contraseña
+- Quitar el segundo factor no deja registro en la auditoría: `apps/auditoria/` escribe en el conjunto activo y aquí no hay ninguno. Tampoco lo deja la recuperación de contraseña
+- Con el enlace por correo, el segundo factor protege tanto como el buzón de la cuenta: quien lo controla puede cambiar la contraseña y después quitar el 2FA (decisión de Alejo, 2026-10-05)

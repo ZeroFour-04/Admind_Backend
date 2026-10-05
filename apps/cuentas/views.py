@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 from apps.comun.aislamiento.vistas import VistaDeConjunto
 from apps.conjuntos.serializers import ConjuntoListaSerializer
 from apps.cuentas import dos_factores, servicios
-from apps.cuentas.limites import LimiteDeEnlacesPorCorreo
+from apps.cuentas.limites import LimiteDeEnlacesPorCorreo, LimiteDeEnlacesPorCuenta
 from apps.cuentas.serializers import (
     AsignarRolSerializer,
     CodigoSerializer,
@@ -16,6 +16,7 @@ from apps.cuentas.serializers import (
     ElegirConjuntoSerializer,
     IniciarSesionSerializer,
     RestablecerContrasenaSerializer,
+    RestablecerDosFactoresSerializer,
     SolicitarRecuperacionSerializer,
     UsuarioResumenSerializer,
     asignaciones_del_usuario,
@@ -35,6 +36,13 @@ MENSAJE_DEMASIADOS_ENLACES = (
 )
 MENSAJE_ENLACE_INVALIDO = "El enlace no es válido o ya venció. Pide uno nuevo."
 MENSAJE_CODIGO_INVALIDO = "Código incorrecto o vencido."
+MENSAJE_SIN_SEGUNDO_FACTOR = "Todavía no tienes un segundo factor configurado."
+MENSAJE_ENLACE_DE_SEGUNDO_FACTOR_ENVIADO = (
+    "Te enviamos al correo de tu cuenta un enlace para quitar la verificación en dos pasos."
+)
+MENSAJE_DEMASIADOS_ENLACES_DE_SEGUNDO_FACTOR = (
+    "Se pidieron demasiados enlaces para esta cuenta. Espera una hora e intenta de nuevo."
+)
 
 
 class IniciarSesionView(APIView):
@@ -306,10 +314,39 @@ class VerificarDosFactoresView(APIView):
         try:
             dos_factores.verificar(request.auth, datos.validated_data["codigo"])
         except dos_factores.SinConfigurar:
-            return Response(
-                {"detail": "Todavía no tienes un segundo factor configurado."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"detail": MENSAJE_SIN_SEGUNDO_FACTOR}, status=status.HTTP_400_BAD_REQUEST)
         except dos_factores.CodigoInvalido:
             return Response({"codigo": [MENSAJE_CODIGO_INVALIDO]}, status=status.HTTP_400_BAD_REQUEST)
         return Response(estado_de_la_sesion(request.auth))
+
+
+class SolicitarRestablecerDosFactoresView(APIView):
+    """Para quien entró con su contraseña y no tiene la aplicación ni los códigos de respaldo."""
+
+    permitida_sin_segundo_factor = True
+    throttle_classes = [LimiteDeEnlacesPorCuenta]
+
+    def throttled(self, request, wait):
+        raise Throttled(detail=MENSAJE_DEMASIADOS_ENLACES_DE_SEGUNDO_FACTOR)
+
+    def post(self, request):
+        try:
+            dos_factores.solicitar_restablecimiento(request.user)
+        except dos_factores.SinConfigurar:
+            return Response({"detail": MENSAJE_SIN_SEGUNDO_FACTOR}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": MENSAJE_ENLACE_DE_SEGUNDO_FACTOR_ENVIADO}, status=status.HTTP_202_ACCEPTED)
+
+
+class RestablecerDosFactoresView(APIView):
+    # Sin sesión: el enlace del correo es la prueba, y se puede abrir en otro equipo.
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        datos = RestablecerDosFactoresSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        try:
+            dos_factores.restablecer(**datos.validated_data)
+        except servicios.EnlaceInvalido:
+            return Response({"detail": MENSAJE_ENLACE_INVALIDO}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(status=status.HTTP_204_NO_CONTENT)

@@ -133,3 +133,8 @@ class RestablecerContrasenaSerializer(serializers.Serializer):
 
 class CodigoSerializer(serializers.Serializer):
     codigo = serializers.CharField(max_length=20)
+
+
+class RestablecerDosFactoresSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()

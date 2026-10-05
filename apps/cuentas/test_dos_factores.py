@@ -2,7 +2,11 @@
 import time
 
 import pytest
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 from django_otp.oath import TOTP
+from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from rest_framework.test import APIClient
 
@@ -230,3 +234,120 @@ def test_la_verificacion_es_de_la_sesion_y_no_de_la_cuenta(usuario, torres):
     entrar()
 
     assert sorted(TokenDeSesion.objects.values_list("dos_factores_verificado", flat=True)) == [False, True]
+
+
+# Sin la aplicación ni los códigos de respaldo: se quita por correo
+
+
+def pedir_enlace(cliente):
+    return cliente.post("/auth/dos-factores/restablecer/")
+
+
+def enlace_del_correo(bandeja):
+    enlace = next(linea for linea in bandeja[-1].body.splitlines() if "/segundo-factor/restablecer/" in linea)
+    uid, token = enlace.rstrip("/").split("/")[-2:]
+    return uid, token
+
+
+def quitar(uid, token):
+    # Sin sesión: el enlace del correo se puede abrir en otro equipo.
+    return APIClient().post("/auth/dos-factores/restablecer/confirmar/", {"uid": uid, "token": token}, format="json")
+
+
+def test_quien_perdio_la_aplicacion_recibe_un_enlace_en_el_correo_de_su_cuenta(usuario, torres, mailoutbox):
+    asignar(usuario, Rol.ADMINISTRACION, torres)
+    configurar(entrar()[0])
+    # Sesión nueva: la contraseña está bien y el segundo factor sigue sin verificar.
+    cliente, _ = entrar()
+
+    respuesta = pedir_enlace(cliente)
+
+    assert respuesta.status_code == 202
+    assert len(mailoutbox) == 1
+    assert mailoutbox[0].to == ["laura@correo.com"]
+    assert "/segundo-factor/restablecer/" in mailoutbox[0].body
+
+
+def test_sin_haber_entrado_con_la_contrasena_no_se_puede_pedir_el_enlace(usuario, torres, mailoutbox):
+    asignar(usuario, Rol.ADMINISTRACION, torres)
+    configurar(entrar()[0])
+
+    assert pedir_enlace(APIClient()).status_code == 401
+    assert mailoutbox == []
+
+
+def test_sin_segundo_factor_configurado_no_hay_enlace_que_pedir(usuario, torres, mailoutbox):
+    asignar(usuario, Rol.ADMINISTRACION, torres)
+    cliente, _ = entrar()
+
+    assert pedir_enlace(cliente).status_code == 400
+    assert mailoutbox == []
+
+
+def test_con_el_enlace_se_quita_el_segundo_factor_y_se_cierran_las_sesiones(usuario, torres, mailoutbox):
+    asignar(usuario, Rol.ADMINISTRACION, torres)
+    configurar(entrar()[0])
+    pedir_enlace(entrar()[0])
+
+    respuesta = quitar(*enlace_del_correo(mailoutbox))
+
+    assert respuesta.status_code == 204
+    assert not TOTPDevice.objects.exists()
+    assert not StaticDevice.objects.exists()
+    assert not TokenDeSesion.objects.exists()
+    # Al volver a entrar tiene que configurar uno nuevo antes de seguir.
+    cliente, sesion = entrar()
+    assert sesion["dos_factores"] == {"requerido": True, "configurado": False, "verificado": False}
+    assert cliente.get("/auth/conjuntos/").status_code == 403
+    assert cliente.post("/auth/dos-factores/configurar/").status_code == 200
+
+
+def test_el_enlace_para_quitarlo_sirve_una_sola_vez(usuario, torres, mailoutbox):
+    asignar(usuario, Rol.ADMINISTRACION, torres)
+    configurar(entrar()[0])
+    pedir_enlace(entrar()[0])
+    uid, token = enlace_del_correo(mailoutbox)
+    assert quitar(uid, token).status_code == 204
+    # Ya configuró uno nuevo: el enlace viejo no lo puede quitar.
+    configurar(entrar()[0])
+
+    assert quitar(uid, token).status_code == 400
+    assert TOTPDevice.objects.filter(confirmed=True).exists()
+
+
+def test_el_enlace_para_quitarlo_vencido_no_sirve(usuario, torres, mailoutbox, settings):
+    asignar(usuario, Rol.ADMINISTRACION, torres)
+    configurar(entrar()[0])
+    pedir_enlace(entrar()[0])
+    uid, token = enlace_del_correo(mailoutbox)
+    settings.PASSWORD_RESET_TIMEOUT = -1
+
+    assert quitar(uid, token).status_code == 400
+    assert TOTPDevice.objects.exists()
+
+
+def test_un_enlace_de_recuperar_la_contrasena_no_quita_el_segundo_factor(usuario, torres):
+    asignar(usuario, Rol.ADMINISTRACION, torres)
+    configurar(entrar()[0])
+    uid = urlsafe_base64_encode(force_bytes(usuario.pk))
+
+    respuesta = quitar(uid, default_token_generator.make_token(usuario))
+
+    assert respuesta.status_code == 400
+    assert TOTPDevice.objects.exists()
+
+
+def test_el_cuarto_enlace_en_una_hora_para_la_misma_cuenta_se_rechaza(usuario, torres, mailoutbox):
+    asignar(usuario, Rol.ADMINISTRACION, torres)
+    configurar(entrar()[0])
+    cliente, _ = entrar()
+    for _ in range(3):
+        assert pedir_enlace(cliente).status_code == 202
+
+    cuarto = pedir_enlace(cliente)
+
+    assert cuarto.status_code == 429
+    assert cuarto.json() == {
+        "detail": "Se pidieron demasiados enlaces para esta cuenta. Espera una hora e intenta de nuevo."
+    }
+    assert len(mailoutbox) == 3

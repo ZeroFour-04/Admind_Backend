@@ -241,7 +241,6 @@ def area_comun_de(otro_conjunto):
     with usar_conjunto(otro_conjunto.id):
         return AreaComun.objects.create(
             nombre=f"Salón {AreaComun.objects.count() + 1}",
-            clasificacion="comun",
             hora_apertura=time(8),
             hora_cierre=time(20),
             duracion_franja_minutos=120,
@@ -391,6 +390,8 @@ RUTAS_SIN_CONJUNTO = {
     "dos-factores-configurar",
     "dos-factores-activar",
     "dos-factores-verificar",
+    "dos-factores-restablecer",
+    "dos-factores-restablecer-confirmar",
 }
 
 

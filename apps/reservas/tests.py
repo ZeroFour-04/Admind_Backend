@@ -10,7 +10,7 @@ from django.utils import timezone
 from django.utils.formats import date_format
 from rest_framework.test import APIClient
 
-from apps.areas.models import Area, Clasificacion
+from apps.areas.models import Area
 from apps.auditoria.models import Registro
 from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.conjuntos.models import Conjunto
@@ -63,8 +63,7 @@ def vecino(conjunto, correo, nombres, unidad, reside=True, tipo=TipoVinculo.ARRE
 
 def crear_area(conjunto, nombre, **extra):
     datos = {
-        "clasificacion": Clasificacion.COMUN, "hora_apertura": time(8), "hora_cierre": time(22),
-        "duracion_franja_minutos": 240, **extra,
+        "hora_apertura": time(8), "hora_cierre": time(22), "duracion_franja_minutos": 240, **extra,
     }
     with usar_conjunto(conjunto.id):
         return Area.objects.create(nombre=nombre, **datos)
@@ -363,21 +362,15 @@ def test_sin_vivir_en_la_unidad_elegida_la_alfa_lo_impide(pedro, torres, salon, 
     ]
 
 
-def test_una_unidad_en_mora_no_pide_un_area_no_esencial_pero_si_una_esencial(
+def test_una_unidad_en_mora_no_pide_un_area_con_paz_y_salvo_exigido(
     monkeypatch, pedro, torres, salon, apartamentos, administracion
 ):
-    """Cierra el criterio de mora de HU-09."""
     monkeypatch.setattr(mora, "unidad_en_mora", lambda unidad: True)
-    esencial = crear_area(torres, "Salón de portería", clasificacion=Clasificacion.COMUN_ESENCIAL)
     regla(torres, salon, "REQUIERE_PAZ_Y_SALVO", {}, administracion[0])
-    # Sobre un área esencial la API no deja crearla; se crea directo para probar que no aplica.
-    regla(torres, esencial, "REQUIERE_PAZ_Y_SALVO", {}, administracion[0])
 
     rechazada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0])
-    aceptada = enviar(pedro, tomar(pedro, esencial).json()["id"], apartamentos[0])
 
     assert rechazada.json()["motivos"] == ["El apartamento no está a paz y salvo con la administración."]
-    assert aceptada.json()["estado"] == "APARTADA"
 
 
 def test_queda_registrado_que_reglas_se_evaluaron_y_con_que_resultado(

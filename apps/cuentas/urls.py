@@ -14,7 +14,9 @@ from apps.cuentas.views import (
     IniciarSesionView,
     PerfilDeUsuarioView,
     RestablecerContrasenaView,
+    RestablecerDosFactoresView,
     SolicitarRecuperacionView,
+    SolicitarRestablecerDosFactoresView,
     UsuariosView,
     VerificarDosFactoresView,
 )
@@ -44,4 +46,14 @@ urlpatterns = [
     path("dos-factores/configurar/", ConfigurarDosFactoresView.as_view(), name="dos-factores-configurar"),
     path("dos-factores/activar/", ActivarDosFactoresView.as_view(), name="dos-factores-activar"),
     path("dos-factores/verificar/", VerificarDosFactoresView.as_view(), name="dos-factores-verificar"),
+    path(
+        "dos-factores/restablecer/",
+        SolicitarRestablecerDosFactoresView.as_view(),
+        name="dos-factores-restablecer",
+    ),
+    path(
+        "dos-factores/restablecer/confirmar/",
+        RestablecerDosFactoresView.as_view(),
+        name="dos-factores-restablecer-confirmar",
+    ),
 ]

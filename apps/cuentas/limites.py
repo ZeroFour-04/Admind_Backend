@@ -21,3 +21,16 @@ class LimiteDeEnlacesPorCorreo(SimpleRateThrottle):
             return None
         # La huella y no el correo: la clave queda de largo fijo y el correo no se guarda en claro.
         return self.cache_format % {"scope": self.scope, "ident": huella_de(correo.strip().lower())}
+
+
+class LimiteDeEnlacesPorCuenta(SimpleRateThrottle):
+    """A lo sumo 3 enlaces por hora para quitar el segundo factor de una misma cuenta (HU-02).
+
+    Cuenta por usuario y no por correo: quien lo pide ya inició sesión. Vive en la misma caché.
+    """
+
+    scope = "restablecer_dos_factores"
+    rate = "3/hour"
+
+    def get_cache_key(self, request, view):
+        return self.cache_format % {"scope": self.scope, "ident": request.user.pk}

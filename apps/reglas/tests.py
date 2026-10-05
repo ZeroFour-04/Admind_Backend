@@ -5,7 +5,7 @@ import pytest
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from apps.areas.models import Area, Clasificacion
+from apps.areas.models import Area
 from apps.auditoria.models import Registro
 from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.conjuntos.models import Conjunto
@@ -62,11 +62,10 @@ def admin(laura):
     return cliente_para("admin@torres.com")
 
 
-def crear_area(conjunto, nombre, clasificacion=Clasificacion.COMUN):
+def crear_area(conjunto, nombre):
     with usar_conjunto(conjunto.id):
         return Area.objects.create(
-            nombre=nombre, clasificacion=clasificacion, hora_apertura=time(8), hora_cierre=time(22),
-            duracion_franja_minutos=240,
+            nombre=nombre, hora_apertura=time(8), hora_cierre=time(22), duracion_franja_minutos=240,
         )
 
 
@@ -125,16 +124,6 @@ def test_una_regla_permisiva_se_rechaza(admin, salon):
     assert crear(admin, salon, "ANTICIPACION_MINIMA", {"horas": -1}).status_code == 400
     assert "tipo" in crear(admin, salon, "PERMITIR_X", {}).json()
     assert not hay_reglas(salon)
-
-
-def test_una_regla_beta_no_relaja_una_alfa(admin, torres, salon):
-    porteria = crear_area(torres, "Portería", Clasificacion.COMUN_ESENCIAL)
-
-    respuesta = crear(admin, porteria, "REQUIERE_PAZ_Y_SALVO", {})
-
-    assert respuesta.status_code == 400
-    assert respuesta.json()["parametros"] == ["Un área común esencial no se puede restringir por mora."]
-    assert crear(admin, salon, "REQUIERE_PAZ_Y_SALVO", {}).status_code == 201
 
 
 def test_una_regla_editada_deja_version_autor_y_fecha(admin, laura, torres, salon):
@@ -292,15 +281,13 @@ def test_el_cupo_por_unidad_cuenta_las_apartadas_de_la_ventana(torres, solicitud
     assert fuera_de_la_ventana == ""
 
 
-def test_paz_y_salvo_solo_restringe_areas_no_esenciales(monkeypatch, torres, solicitud):
+def test_paz_y_salvo_restringe_a_la_unidad_en_mora(monkeypatch, torres, solicitud):
     evaluar_tipo = EVALUADOR_POR_TIPO["REQUIERE_PAZ_Y_SALVO"]
     assert evaluar_tipo(solicitud, {}) == ""
 
     monkeypatch.setattr(mora, "unidad_en_mora", lambda unidad: True)
 
     assert evaluar_tipo(solicitud, {}) == "El apartamento no está a paz y salvo con la administración."
-    solicitud.area.clasificacion = Clasificacion.COMUN_ESENCIAL
-    assert evaluar_tipo(solicitud, {}) == ""
 
 
 def test_el_aforo_se_explica_en_la_voz_de_la_interfaz(solicitud):

@@ -6,7 +6,7 @@ Catálogo de zonas comunes de cada conjunto: salón comunal, piscina, gimnasio y
 
 ## Qué va aquí
 
-- Modelo de área por conjunto, con `clasificacion ∈ {comun, comun_esencial, comun_uso_exclusivo}` y el derivado `esEsencial`
+- Modelo de área por conjunto: se identifica por nombre dentro del conjunto, sin tipo ni clasificación
 - Plantilla de **condiciones del alquiler** por área, que precarga la aprobación de una reserva
 
 ## Con qué se conecta

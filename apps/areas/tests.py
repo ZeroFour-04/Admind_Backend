@@ -4,7 +4,7 @@ from datetime import date, time
 import pytest
 from rest_framework.test import APIClient
 
-from apps.areas.models import Area, Clasificacion
+from apps.areas.models import Area
 from apps.areas.servicios import franjas_del_dia
 from apps.auditoria.models import Registro
 from apps.comun.aislamiento.contexto import usar_conjunto
@@ -20,7 +20,6 @@ pytestmark = pytest.mark.django_db
 CONTRASENA = "una-clave-larga-2026"
 SALON = {
     "nombre": "Salón comunal",
-    "clasificacion": "comun",
     "hora_apertura": "08:00",
     "hora_cierre": "22:00",
     "duracion_franja_minutos": 240,
@@ -76,29 +75,6 @@ def salon(admin):
 
 
 # Criterios de aceptación
-
-
-def test_al_crear_un_area_hay_que_elegir_la_clasificacion_de_la_lista_cerrada(admin, torres):
-    sin_clasificacion = {campo: valor for campo, valor in SALON.items() if campo != "clasificacion"}
-
-    assert "clasificacion" in admin.post("/areas/", sin_clasificacion, format="json").json()
-    assert admin.post("/areas/", {**SALON, "clasificacion": "privada"}, format="json").status_code == 400
-    assert areas_de(torres) == []
-
-    respuesta = admin.post("/areas/", SALON, format="json")
-
-    assert respuesta.status_code == 201
-    assert respuesta.json()["clasificacion_nombre"] == "Común"
-
-
-@pytest.mark.parametrize(
-    ("clasificacion", "esencial"),
-    [(Clasificacion.COMUN, False), (Clasificacion.COMUN_ESENCIAL, True), (Clasificacion.COMUN_USO_EXCLUSIVO, False)],
-)
-def test_solo_un_area_comun_esencial_es_esencial(admin, clasificacion, esencial):
-    respuesta = admin.post("/areas/", {**SALON, "clasificacion": clasificacion}, format="json")
-
-    assert respuesta.json()["es_esencial"] is esencial
 
 
 def test_sin_area_gestionar_no_se_crea_ni_se_edita_y_solo_se_ven_las_activas(admin, residente, salon):
@@ -171,7 +147,7 @@ def test_nombre_repetido_en_el_mismo_conjunto_responde_400(admin, salon):
 def test_las_franjas_son_bloques_consecutivos_desde_la_apertura_sin_pasar_el_cierre(torres):
     with usar_conjunto(torres.id):
         area = Area.objects.create(
-            nombre="BBQ", clasificacion="comun", hora_apertura=time(8), hora_cierre=time(21), duracion_franja_minutos=240
+            nombre="BBQ", hora_apertura=time(8), hora_cierre=time(21), duracion_franja_minutos=240
         )
 
     assert franjas_del_dia(area, date(2026, 12, 26)) == [

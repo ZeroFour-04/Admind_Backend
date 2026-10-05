@@ -1,11 +1,15 @@
 """Pruebas de HU-01 (inicio y cierre de sesión con token) y HU-26 (selector de conjunto activo)."""
+import time
 from datetime import timedelta
+from unittest import mock
 
 import pytest
+from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.conjuntos.models import Conjunto
+from apps.cuentas.limites import LimiteDeEnlacesPorCorreo
 from apps.cuentas.models import TokenDeSesion, Usuario
 from apps.permisos.catalogo import PERMISOS, PERMISOS_POR_ROL, Rol
 from apps.permisos.models import Asignacion
@@ -30,6 +34,12 @@ def usuario():
         apellidos="Gómez",
     )
     return Usuario.objects.create_user("laura@correo.com", CONTRASENA, persona)
+
+
+@pytest.fixture(autouse=True)
+def contador_de_enlaces_en_cero():
+    # El límite de enlaces vive en la caché en memoria, que no se vacía sola entre pruebas.
+    cache.clear()
 
 
 def iniciar_sesion(cliente, correo, contrasena):
@@ -525,3 +535,50 @@ def test_la_contrasena_nueva_debe_cumplir_las_reglas(cliente, usuario, mailoutbo
     assert "contrasena" in respuesta.json()
     # El enlace sigue sirviendo: la contraseña no cambió.
     assert restablecer(cliente, uid, token).status_code == 204
+
+
+def test_el_limite_cuenta_igual_con_mayusculas_y_espacios(cliente, usuario, mailoutbox):
+    for _ in range(3):
+        assert pedir_enlace(cliente, "laura@correo.com").status_code == 202
+
+    # La cuarta llega con el correo escrito distinto: mismo límite, misma cuenta.
+    assert pedir_enlace(cliente, " Laura@Correo.com ").status_code == 429
+
+
+def test_el_cuarto_enlace_en_una_hora_para_el_mismo_correo_se_rechaza(cliente, usuario, mailoutbox):
+    for _ in range(3):
+        assert pedir_enlace(cliente).status_code == 202
+
+    cuarto = pedir_enlace(cliente)
+
+    assert cuarto.status_code == 429
+    assert cuarto.json() == {
+        "detail": "Se pidieron demasiados enlaces para este correo. Espera una hora e intenta de nuevo."
+    }
+    assert len(mailoutbox) == 3
+
+
+def test_el_limite_no_revela_si_el_correo_existe(cliente, usuario, mailoutbox):
+    for _ in range(3):
+        assert pedir_enlace(cliente, "nadie@correo.com").status_code == 202
+
+    cuarto = pedir_enlace(cliente, "nadie@correo.com")
+
+    assert cuarto.status_code == 429
+    assert cuarto.json() == {
+        "detail": "Se pidieron demasiados enlaces para este correo. Espera una hora e intenta de nuevo."
+    }
+    assert len(mailoutbox) == 0
+    # Cada correo lleva su propia cuenta: el tope de nadie@ no le cierra la puerta a laura@.
+    assert pedir_enlace(cliente).status_code == 202
+
+
+def test_pasada_la_hora_se_puede_pedir_otro_enlace(cliente, usuario, mailoutbox):
+    for _ in range(3):
+        pedir_enlace(cliente)
+    assert pedir_enlace(cliente).status_code == 429
+
+    una_hora_despues = time.time() + 60 * 60 + 1
+    with mock.patch.object(LimiteDeEnlacesPorCorreo, "timer", return_value=una_hora_despues):
+        assert pedir_enlace(cliente).status_code == 202
+    assert len(mailoutbox) == 4

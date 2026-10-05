@@ -9,6 +9,7 @@ Alcance: Núcleo (§3.1).
 - Modelo `Usuario`: tabla global, sin `conjunto_id` (§5.4)
 - Sesión por token con registro en la base (`TokenDeSesion`, maestro §12.7 b): la base guarda solo la huella del token
 - Ingreso, salida y recuperación de contraseña por correo
+- Límite de enlaces de recuperación: 3 por hora por correo, con el throttling de DRF (`limites.py`). Se declara en la vista y cuenta en la memoria del proceso
 - Selección del conjunto activo (HU-26)
 - Creación de usuarios con un rol asignado en el conjunto activo
 - 2FA TOTP con `django-otp`, **obligatorio para todo usuario con algún permiso sensible** (`dos_factores.py`)
@@ -28,7 +29,7 @@ Todas las rutas exigen `Authorization: Token <token>`, salvo las marcadas *públ
 | `GET` | `/auth/usuarios/` | Cuentas con algún rol en el conjunto activo. Exige `usuario.gestionar` | 200 con `roles` en el conjunto activo |
 | `POST` | `/auth/usuarios/` | Crea persona, cuenta y rol en el conjunto activo. Exige `usuario.gestionar` | 201 · 400 si el documento o el correo ya existen · 403 sin conjunto activo |
 | `GET` | `/auth/usuarios/<id>/` | Una cuenta del conjunto activo. Exige `usuario.gestionar` | 200 · 404 si no está en el conjunto activo |
-| `POST` | `/auth/recuperar/` | *Pública.* Envía el enlace de recuperación a `correo` | 202 siempre, exista o no la cuenta |
+| `POST` | `/auth/recuperar/` | *Pública.* Envía el enlace de recuperación a `correo` | 202 siempre, exista o no la cuenta · 429 al cuarto pedido en una hora para el mismo correo |
 | `POST` | `/auth/recuperar/confirmar/` | *Pública.* Cambia la contraseña con `uid`, `token` y `contrasena`, y cierra las sesiones abiertas | 204 · 400 si el enlace no sirve o la contraseña no cumple las reglas |
 | `POST` | `/auth/dos-factores/configurar/` | *Sin 2FA.* Genera el secreto y el QR | 200 con `qr`, `clave` y `enlace` · 409 si ya está configurado |
 | `POST` | `/auth/dos-factores/activar/` | *Sin 2FA.* Confirma el secreto con el primer `codigo` | 200 con los 10 `codigos_de_respaldo` y el estado de la sesión · 400 si el código no sirve |
@@ -49,4 +50,7 @@ Maestro §3.1, §5.3, §7.1, §7.2 · HU-01, HU-02, HU-26
 
 ## Pendiente
 
-- El correo de recuperación sale directo con `send_mail`. Cuando exista el canal de notificaciones (`apps/notificaciones/`, §3.1), debe pasar por él
+- El correo de recuperación **no** pasa por el canal de notificaciones: el canal necesita un conjunto activo y deja el aviso en la bandeja, y aquí no hay sesión ni conjunto (decisión de Alejo, 2026-10-04)
+- `send_mail` es síncrono y sin `try`: si el servidor de correo falla, `/auth/recuperar/` responde 500 solo cuando la cuenta existe
+- El límite de enlaces vive en memoria: se pierde al reiniciar el servidor y no se comparte entre procesos
+- `/auth/login/` no limita intentos de contraseña

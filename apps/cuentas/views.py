@@ -1,6 +1,6 @@
 from django.core.exceptions import ValidationError as ErrorDeValidacionDeDjango
 from rest_framework import status
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, Throttled
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 from apps.comun.aislamiento.vistas import VistaDeConjunto
 from apps.conjuntos.serializers import ConjuntoListaSerializer
 from apps.cuentas import dos_factores, servicios
+from apps.cuentas.limites import LimiteDeEnlacesPorCorreo
 from apps.cuentas.serializers import (
     AsignarRolSerializer,
     CodigoSerializer,
@@ -28,6 +29,9 @@ from apps.permisos.views import exigir_permiso
 MENSAJE_CREDENCIALES_INVALIDAS = "Correo o contraseña incorrectos."
 MENSAJE_RECUPERACION_ENVIADA = (
     "Si el correo está registrado, te enviamos un enlace para restablecer la contraseña."
+)
+MENSAJE_DEMASIADOS_ENLACES = (
+    "Se pidieron demasiados enlaces para este correo. Espera una hora e intenta de nuevo."
 )
 MENSAJE_ENLACE_INVALIDO = "El enlace no es válido o ya venció. Pide uno nuevo."
 MENSAJE_CODIGO_INVALIDO = "Código incorrecto o vencido."
@@ -227,6 +231,11 @@ class RetirarUsuarioDelConjuntoView(VistaDeConjunto):
 class SolicitarRecuperacionView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
+    throttle_classes = [LimiteDeEnlacesPorCorreo]
+
+    def throttled(self, request, wait):
+        # Texto propio, el mismo exista o no la cuenta. El de DRF le suma los segundos que faltan.
+        raise Throttled(detail=MENSAJE_DEMASIADOS_ENLACES)
 
     def post(self, request):
         datos = SolicitarRecuperacionSerializer(data=request.data)

@@ -1,7 +1,7 @@
-"""Reglas alfa: en código, siempre activas; el administrador no las desactiva (maestro §5.10, HU-13).
+"""Reglas del sistema: fijas en el código, siempre activas. Nadie las configura ni las apaga.
 
-Las alfas de piscina (acompañante de menores, salvavidas) y de cobro quedan fuera: todavía
-no hay datos con qué evaluarlas.
+Hasta el 2026-10-06 se llamaban alfa. Hoy una regla alfa es la que Administración define para
+todo el conjunto (`catalogo.py`). Las de piscina y de cobro siguen fuera: no hay datos con qué evaluarlas.
 """
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -13,9 +13,10 @@ from apps.unidades.models import VinculoUnidad
 
 @dataclass(frozen=True)
 class Resultado:
-    """Lo que dijo una regla, alfa o beta, sobre una solicitud. `motivo` va vacío si cumple.
+    """Lo que dijo una regla sobre una solicitud. `motivo` va vacío si cumple.
 
-    Las alfas no tienen id ni parámetros; las beta llevan los de su versión (plan P10).
+    `nivel` dice de dónde sale: `sistema`, `alfa` (del conjunto) o `beta` (del área). Las del
+    sistema y el aforo no tienen id; las demás llevan el de su versión (plan P10).
     """
 
     clave: str
@@ -24,11 +25,13 @@ class Resultado:
     motivo: str = ""
     regla_id: object = None
     parametros: dict = field(default_factory=dict)
+    nivel: str = "sistema"
 
     def como_dict(self):
         return {
             "id": self.regla_id,
             "tipo": self.clave,
+            "nivel": self.nivel,
             "descripcion": self.descripcion,
             "parametros": self.parametros,
             "cumple": self.cumple,
@@ -67,4 +70,4 @@ def area_disponible(solicitud):
     )
 
 
-ALFAS = [reside, no_en_el_pasado, area_disponible]
+REGLAS_DEL_SISTEMA = [reside, no_en_el_pasado, area_disponible]

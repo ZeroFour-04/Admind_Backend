@@ -17,6 +17,8 @@ class Area(ModeloDeConjunto):
     hora_apertura = models.TimeField()
     hora_cierre = models.TimeField()
     duracion_franja_minutos = models.PositiveSmallIntegerField()
+    # Cuántas personas caben. Es obligatorio: toda solicitud se compara con él.
+    aforo_maximo = models.PositiveSmallIntegerField()
     en_mantenimiento = models.BooleanField(default=False)
     # Un área retirada se desactiva; no se borra (maestro §5.11).
     activo = models.BooleanField(default=True)
@@ -30,6 +32,7 @@ class Area(ModeloDeConjunto):
             models.CheckConstraint(
                 condition=Q(duracion_franja_minutos__gte=120), name="area_duracion_franja_minima"
             ),
+            models.CheckConstraint(condition=Q(aforo_maximo__gte=1), name="area_aforo_maximo_valido"),
         ]
 
     def __str__(self):

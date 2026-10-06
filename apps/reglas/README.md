@@ -6,24 +6,28 @@ El motor de reglas: cada conjunto configura, a partir de su reglamento, qué res
 
 ## Qué va aquí
 
-- **Reglas alfa:** en código; el administrador no las desactiva
-- **Reglas beta:** catálogo de **tipos parametrizados**, no un DSL. Cada regla = tipo + parámetros + área + vigencia + conjunto
-- Evaluación en AND (todas restringen, así que no hay conflicto) y respuesta con **todas** las reglas que fallaron, no solo la primera
+- **Reglas del sistema** (`sistema.py`): en código; nadie las configura ni las apaga
+- **Reglas alfa y beta** (`catalogo.py` y `Regla`): catálogo de **tipos parametrizados**, no un DSL. Una regla alfa es del conjunto y no lleva área; una beta es de un área. El nivel lo dice el catálogo, y cada tipo se define **una sola vez** (en el conjunto o en cada área)
+- Cada regla = tipo + parámetros + vigencia + conjunto, y el área si es beta. Editar es versionar: la anterior se cierra y la nueva la reemplaza
+- La **descripción fija** de cada tipo, que el front pide por `GET /reglas/catalogo/`
+- Los tipos retirados (`AFORO`, `FRANJA_HORARIA`, `DIAS_NO_RESERVABLES`) siguen en el catálogo para leer el historial: no se crean ni se editan
+- Evaluación en AND (todas restringen, así que no hay conflicto) y respuesta con **todas** las reglas que fallaron, no solo la primera. Orden: sistema, aforo del área, reglas del conjunto y reglas del área
 
 ## Con qué se conecta
 
 - `apps/reservas/`: evalúa las reglas cuando el residente envía la solicitud
-- `apps/areas/`: las reglas beta se configuran por área
-- `apps/unidades/`: la regla alfa de residencia consulta vínculos
-- `apps/pagos/`: la regla beta "requiere paz y salvo"
-- `apps/conjuntos/`: las reglas beta se cargan en el asistente de creación
+- `apps/reservas/` también en el otro sentido: cuenta las solicitudes apartadas que caen en un día que el área no abre
+- `apps/areas/`: las reglas beta son de un área, y el aforo que se evalúa siempre es `Area.aforo_maximo`
+- `apps/unidades/`: la regla del sistema de residencia consulta vínculos
+- `apps/pagos/`: la regla alfa «paz y salvo», que no restringe hasta que exista (`mora.py`)
+- `apps/conjuntos/`: las reglas se definen en el asistente de creación
 - Frontend: `Admind_Front-End/apps/reglas/`
 
 ## Referencias
 
-Maestro §5.10 · Decisión §9: 3
+Maestro §5.10 · Decisión §9: 3. La definición vigente, del 2026-10-06, está en `05_Modulos/motor_reglas.md` de la documentación.
 
 ## Pendiente
 
-- Cerrar la lista de reglas alfa y el catálogo beta contra un reglamento real (§11.4, §11.5)
-- Vigencia y versionado: ¿snapshot de la versión aplicada en cada decisión? (§5.10)
+- Cerrar el catálogo contra un reglamento real (§11.4, §11.5)
+- Las reglas que llegan con otros módulos: acompañantes y permanencia máxima (ingreso a zonas) y día límite de pago (pagos)

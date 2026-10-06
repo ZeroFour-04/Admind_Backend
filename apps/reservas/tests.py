@@ -63,7 +63,7 @@ def vecino(conjunto, correo, nombres, unidad, reside=True, tipo=TipoVinculo.ARRE
 
 def crear_area(conjunto, nombre, **extra):
     datos = {
-        "hora_apertura": time(8), "hora_cierre": time(22), "duracion_franja_minutos": 240, **extra,
+        "hora_apertura": time(8), "hora_cierre": time(22), "duracion_franja_minutos": 240, "aforo_maximo": 50, **extra,
     }
     with usar_conjunto(conjunto.id):
         return Area.objects.create(nombre=nombre, **datos)
@@ -278,7 +278,7 @@ def test_se_avisa_si_la_franja_empieza_en_menos_de_24_horas(torres, salon, ana):
 
 def test_se_avisa_si_la_fecha_es_el_ultimo_dia_de_la_anticipacion_maxima(torres, salon, ana):
     with usar_conjunto(torres.id):
-        Regla.objects.create(area=salon, tipo="ANTICIPACION_MAXIMA", parametros={"dias": 30}, creada_por=ana)
+        Regla.objects.create(tipo="ANTICIPACION_MAXIMA", parametros={"dias": 30}, creada_por=ana)
     ultimo_dia = timezone.make_aware(datetime.combine(timezone.localdate() + timedelta(days=30), time(10)))
 
     solicitud = en_tramite(torres, salon, ana, ultimo_dia)
@@ -318,8 +318,14 @@ def administracion(torres):
 
 
 def regla(torres, area, tipo, parametros, autor):
+    """`area` va en `None` si la regla es del conjunto."""
     with usar_conjunto(torres.id):
         return Regla.objects.create(area=area, tipo=tipo, parametros=parametros, creada_por=autor)
+
+
+def poner_aforo(torres, area, maximo):
+    with usar_conjunto(torres.id):
+        Area.objects.filter(pk=area.pk).update(aforo_maximo=maximo)
 
 
 def enviar(cliente, solicitud_id, unidad, asistentes=20, **extra):
@@ -455,9 +461,9 @@ def test_si_incumple_tres_reglas_ve_los_tres_motivos_y_se_libera_el_bloqueo(
     pedro, lucia, torres, salon, apartamentos, administracion
 ):
     autor = administracion[0]
-    regla(torres, salon, "AFORO", {"maximo": 25}, autor)
-    regla(torres, salon, "ANTICIPACION_MINIMA", {"horas": 24 * 30}, autor)
-    regla(torres, salon, "DIAS_NO_RESERVABLES", {"dias_semana": [MANANA.weekday()], "fechas": []}, autor)
+    poner_aforo(torres, salon, 25)
+    regla(torres, None, "ANTICIPACION_MINIMA", {"horas": 24 * 30}, autor)
+    regla(torres, salon, "DIAS_QUE_NO_ABRE", {"renglones": [{"dia_semana": MANANA.weekday(), "motivo": "Limpieza"}]}, autor)
     en_tramite = tomar(pedro, salon).json()
 
     respuesta = enviar(pedro, en_tramite["id"], apartamentos[0], asistentes=40)
@@ -466,7 +472,7 @@ def test_si_incumple_tres_reglas_ve_los_tres_motivos_y_se_libera_el_bloqueo(
     assert respuesta.json()["detail"] == "La solicitud no cumple las reglas del conjunto."
     assert sorted(respuesta.json()["motivos"]) == [
         "Esta área admite máximo 25 asistentes y la solicitud dice 40.",
-        "Esta área no se reserva ese día.",
+        "Esta área no abre ese día: Limpieza.",
         "Esta área se solicita con al menos 720 horas de anticipación.",
     ]
     liberada = solicitud(torres, en_tramite["id"])
@@ -490,7 +496,7 @@ def test_una_unidad_en_mora_no_pide_un_area_con_paz_y_salvo_exigido(
     monkeypatch, pedro, torres, salon, apartamentos, administracion
 ):
     monkeypatch.setattr(mora, "unidad_en_mora", lambda unidad: True)
-    regla(torres, salon, "REQUIERE_PAZ_Y_SALVO", {}, administracion[0])
+    regla(torres, None, "REQUIERE_PAZ_Y_SALVO", {}, administracion[0])
 
     rechazada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0])
 
@@ -500,7 +506,7 @@ def test_una_unidad_en_mora_no_pide_un_area_con_paz_y_salvo_exigido(
 def test_queda_registrado_que_reglas_se_evaluaron_y_con_que_resultado(
     pedro, torres, salon, apartamentos, administracion
 ):
-    aforo = regla(torres, salon, "AFORO", {"maximo": 25}, administracion[0])
+    poner_aforo(torres, salon, 25)
     en_tramite = tomar(pedro, salon).json()
 
     respuesta = enviar(pedro, en_tramite["id"], apartamentos[0])
@@ -509,7 +515,8 @@ def test_queda_registrado_que_reglas_se_evaluaron_y_con_que_resultado(
     assert [(r["tipo"], r["cumple"]) for r in evaluacion] == [
         ("RESIDE", True), ("NO_EN_EL_PASADO", True), ("AREA_DISPONIBLE", True), ("AFORO", True),
     ]
-    assert (evaluacion[3]["id"], evaluacion[3]["parametros"]) == (str(aforo.id), {"maximo": 25})
+    # El aforo sale del área, no de una regla: va sin id.
+    assert (evaluacion[3]["id"], evaluacion[3]["parametros"]) == (None, {"maximo": 25})
     assert respuesta.json()["evaluada_en"]
     with usar_conjunto(torres.id):
         registro = Registro.objects.get(accion="reserva.enviar")
@@ -519,7 +526,7 @@ def test_queda_registrado_que_reglas_se_evaluaron_y_con_que_resultado(
 
 def test_un_envio_que_salta_la_interfaz_se_evalua_igual(pedro, torres, salon, apartamentos, administracion):
     """Criterio de HU-12: el POST directo a la API pasa por las mismas reglas."""
-    regla(torres, salon, "AFORO", {"maximo": 25}, administracion[0])
+    poner_aforo(torres, salon, 25)
 
     respuesta = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0], asistentes=40)
 

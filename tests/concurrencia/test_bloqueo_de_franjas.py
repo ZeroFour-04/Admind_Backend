@@ -31,6 +31,7 @@ def residentes_con_area(cantidad):
     with usar_conjunto(torres.id):
         salon = Area.objects.create(
             nombre="Salón comunal", hora_apertura=time(8), hora_cierre=time(22), duracion_franja_minutos=240,
+            aforo_maximo=50,
         )
         for numero in range(cantidad):
             persona = Persona.objects.create(

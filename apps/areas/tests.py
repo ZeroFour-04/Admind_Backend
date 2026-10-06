@@ -2,6 +2,7 @@
 from datetime import date, time
 
 import pytest
+from django.db import IntegrityError, transaction
 from rest_framework.test import APIClient
 
 from apps.areas.models import Area
@@ -23,6 +24,7 @@ SALON = {
     "hora_apertura": "08:00",
     "hora_cierre": "22:00",
     "duracion_franja_minutos": 240,
+    "aforo_maximo": 50,
 }
 
 
@@ -155,6 +157,24 @@ def test_la_duracion_minima_de_una_franja_es_de_dos_horas(admin, salon):
     assert "duracion_franja_minutos" in editar.json()
 
 
+def test_el_aforo_es_obligatorio_y_minimo_uno(admin, salon):
+    sin_aforo = {campo: valor for campo, valor in SALON.items() if campo != "aforo_maximo"}
+    crear_sin = admin.post("/areas/", {**sin_aforo, "nombre": "BBQ"}, format="json")
+    crear_cero = admin.post("/areas/", {**SALON, "nombre": "Gimnasio", "aforo_maximo": 0}, format="json")
+    editar = admin.patch(f"/areas/{salon['id']}/", {"aforo_maximo": 80}, format="json")
+
+    assert crear_sin.status_code == 400 and "aforo_maximo" in crear_sin.json()
+    assert crear_cero.status_code == 400 and "aforo_maximo" in crear_cero.json()
+    assert (editar.status_code, editar.json()["aforo_maximo"]) == (200, 80)
+
+
+def test_la_base_no_acepta_un_area_con_aforo_cero(torres):
+    with usar_conjunto(torres.id), pytest.raises(IntegrityError), transaction.atomic():
+        Area.objects.create(
+            nombre="BBQ", hora_apertura=time(8), hora_cierre=time(22), duracion_franja_minutos=120, aforo_maximo=0
+        )
+
+
 def test_nombre_repetido_en_el_mismo_conjunto_responde_400(admin, salon):
     respuesta = admin.post("/areas/", SALON, format="json")
 
@@ -165,7 +185,7 @@ def test_nombre_repetido_en_el_mismo_conjunto_responde_400(admin, salon):
 def test_las_franjas_son_bloques_consecutivos_desde_la_apertura_sin_pasar_el_cierre(torres):
     with usar_conjunto(torres.id):
         area = Area.objects.create(
-            nombre="BBQ", hora_apertura=time(8), hora_cierre=time(21), duracion_franja_minutos=240
+            nombre="BBQ", hora_apertura=time(8), hora_cierre=time(21), duracion_franja_minutos=240, aforo_maximo=50
         )
 
     assert franjas_del_dia(area, date(2026, 12, 26)) == [

@@ -1,23 +1,86 @@
-"""Catálogo cerrado de tipos de regla beta (maestro §5.10, HU-10, plan D4 a).
+"""Catálogo cerrado de reglas de reserva, por niveles (definición del 2026-10-06, HU-10).
 
-Provisional hasta validarlo contra un reglamento real (maestro §11.4). Todos los tipos
-restringen: no existe ninguno que permita algo, así que se evalúan en AND sin conflictos.
+Una regla alfa es del conjunto y vale para todas sus áreas; una beta es de un área. Cada tipo
+vive en un solo nivel y se define una sola vez. Todos restringen: no existe ninguno que permita
+algo, así que se evalúan en AND sin conflictos. Los tipos retirados quedan para leer el historial.
 
 Los días de la semana van de 0 (lunes) a 6 (domingo), como `date.weekday()`.
 """
-from datetime import date, time
+from datetime import date
 
 from django.db import models
+from django.utils.formats import date_format
+
+
+class Nivel(models.TextChoices):
+    ALFA = "alfa", "Del conjunto"
+    BETA = "beta", "Del área"
 
 
 class TipoDeRegla(models.TextChoices):
     ANTICIPACION_MINIMA = "ANTICIPACION_MINIMA", "Anticipación mínima"
     ANTICIPACION_MAXIMA = "ANTICIPACION_MAXIMA", "Anticipación máxima"
-    CUPO_POR_UNIDAD = "CUPO_POR_UNIDAD", "Cupo por apartamento"
+    REQUIERE_PAZ_Y_SALVO = "REQUIERE_PAZ_Y_SALVO", "Paz y salvo"
+    DIAS_QUE_NO_ABRE = "DIAS_QUE_NO_ABRE", "Días que no abre"
+    CUPO_POR_UNIDAD = "CUPO_POR_UNIDAD", "Límite de reservas por apartamento"
+    # Retirados el 2026-10-06. Quedan para leer el historial: no se crean ni se editan.
     AFORO = "AFORO", "Aforo"
     FRANJA_HORARIA = "FRANJA_HORARIA", "Franja horaria"
     DIAS_NO_RESERVABLES = "DIAS_NO_RESERVABLES", "Días no reservables"
-    REQUIERE_PAZ_Y_SALVO = "REQUIERE_PAZ_Y_SALVO", "Requiere paz y salvo"
+
+
+# En qué nivel vive cada tipo que se puede definir hoy. Un tipo que no está aquí está retirado.
+NIVEL_POR_TIPO = {
+    TipoDeRegla.ANTICIPACION_MINIMA: Nivel.ALFA,
+    TipoDeRegla.ANTICIPACION_MAXIMA: Nivel.ALFA,
+    TipoDeRegla.REQUIERE_PAZ_Y_SALVO: Nivel.ALFA,
+    TipoDeRegla.DIAS_QUE_NO_ABRE: Nivel.BETA,
+    TipoDeRegla.CUPO_POR_UNIDAD: Nivel.BETA,
+}
+# Como texto, porque van dentro de una restricción de la base (F3).
+TIPOS_ALFA = [tipo.value for tipo, nivel in NIVEL_POR_TIPO.items() if nivel == Nivel.ALFA]
+TIPOS_BETA = [tipo.value for tipo, nivel in NIVEL_POR_TIPO.items() if nivel == Nivel.BETA]
+
+# Lo que lee Administración junto a cada regla. La escribe el sistema, no quien configura.
+DESCRIPCION_POR_TIPO = {
+    TipoDeRegla.ANTICIPACION_MINIMA: (
+        "Cuántas horas antes, como mínimo, se pide una reserva. Con 24, nadie reserva para hoy mismo. "
+        "Con 0 no hay mínimo."
+    ),
+    TipoDeRegla.ANTICIPACION_MAXIMA: (
+        "Hasta cuántos días hacia adelante se puede reservar. Con 30, hoy se puede pedir cualquier fecha "
+        "de los próximos 30 días y ninguna posterior."
+    ),
+    TipoDeRegla.REQUIERE_PAZ_Y_SALVO: (
+        "Si la activas, un apartamento en mora con la administración no puede reservar hasta ponerse al día."
+    ),
+    TipoDeRegla.DIAS_QUE_NO_ABRE: (
+        "Días de la semana, fechas o periodos en que el área no presta servicio. Cada uno lleva su motivo, "
+        "que es lo que lee el residente."
+    ),
+    TipoDeRegla.CUPO_POR_UNIDAD: (
+        "Cuántas reservas de esta área puede tener un mismo apartamento en un periodo. Con 2 cada 30 días, "
+        "un apartamento no aparta el salón todos los fines de semana."
+    ),
+}
+# Reglas que ya se pueden definir pero todavía no restringen nada. Se quita la nota cuando llegue su módulo.
+NOTA_POR_TIPO = {
+    TipoDeRegla.REQUIERE_PAZ_Y_SALVO: "Todavía no restringe: falta el módulo de pagos.",
+}
+
+
+def tipos_vigentes():
+    """El catálogo que se muestra: una entrada por tipo que se puede definir, primero las del conjunto."""
+    return [
+        {
+            "tipo": tipo.value,
+            "nivel": nivel.value,
+            "nombre": tipo.label,
+            "descripcion": DESCRIPCION_POR_TIPO[tipo],
+            "nota": NOTA_POR_TIPO.get(tipo, ""),
+        }
+        for tipo, nivel in NIVEL_POR_TIPO.items()
+    ]
 
 
 # En plural, como se dicen en una regla: «los sábados».
@@ -46,41 +109,65 @@ def entero(minimo):
     return validar
 
 
-def hora(valor):
-    try:
-        return time.fromisoformat(valor).strftime("%H:%M")
-    except (TypeError, ValueError):
-        raise ValueError("Debe ser una hora con el formato HH:MM.") from None
+MAXIMO_DE_RENGLONES = 60
+LARGO_DEL_MOTIVO = 120
+RENGLON_MAL_ARMADO = "Cada renglón lleva un día de la semana o un periodo, y su motivo."
 
 
-def dias_de_la_semana(valor):
-    if not isinstance(valor, list) or any(isinstance(d, bool) or not isinstance(d, int) or not 0 <= d <= 6 for d in valor):
-        raise ValueError("Debe ser una lista de días de 0 (lunes) a 6 (domingo).")
-    return sorted(set(valor))
+def renglones(valor):
+    """Los días que no abre: cada renglón es un día de la semana o un periodo, siempre con motivo (P4)."""
+    if not isinstance(valor, list) or not valor:
+        raise ValueError("Agrega al menos un día que no abre.")
+    if len(valor) > MAXIMO_DE_RENGLONES:
+        raise ValueError(f"Máximo {MAXIMO_DE_RENGLONES} renglones.")
+    dias, periodos = {}, []
+    for renglon in valor:
+        if not isinstance(renglon, dict):
+            raise ValueError(RENGLON_MAL_ARMADO)
+        motivo = renglon.get("motivo")
+        if not isinstance(motivo, str) or not motivo.strip():
+            raise ValueError("Cada día que no abre lleva su motivo.")
+        motivo = motivo.strip()
+        if len(motivo) > LARGO_DEL_MOTIVO:
+            raise ValueError(f"El motivo no puede pasar de {LARGO_DEL_MOTIVO} caracteres.")
+        if set(renglon) == {"dia_semana", "motivo"}:
+            dia = renglon["dia_semana"]
+            if isinstance(dia, bool) or not isinstance(dia, int) or not 0 <= dia <= 6:
+                raise ValueError("El día de la semana va de 0 (lunes) a 6 (domingo).")
+            if dia in dias:
+                raise ValueError(f"Los {DIAS[dia]} ya están en la lista.")
+            dias[dia] = motivo
+        elif set(renglon) == {"desde", "hasta", "motivo"}:
+            try:
+                desde, hasta = date.fromisoformat(renglon["desde"]), date.fromisoformat(renglon["hasta"])
+            except (TypeError, ValueError):
+                raise ValueError("Las fechas van con el formato AAAA-MM-DD.") from None
+            if hasta < desde:
+                raise ValueError("La fecha final no puede ser anterior a la inicial.")
+            periodos.append((desde, hasta, motivo))
+        else:
+            raise ValueError(RENGLON_MAL_ARMADO)
+    return [{"dia_semana": dia, "motivo": dias[dia]} for dia in sorted(dias)] + [
+        {"desde": desde.isoformat(), "hasta": hasta.isoformat(), "motivo": motivo}
+        for desde, hasta, motivo in sorted(periodos)
+    ]
 
 
-def fechas(valor):
-    try:
-        return sorted({date.fromisoformat(fecha).isoformat() for fecha in valor})
-    except (TypeError, ValueError):
-        raise ValueError("Debe ser una lista de fechas con el formato AAAA-MM-DD.") from None
-
-
-# Qué parámetros lleva cada tipo. Ni uno de más ni uno de menos.
+# Qué parámetros lleva cada tipo vigente. Ni uno de más ni uno de menos.
 PARAMETROS_POR_TIPO = {
-    # Menos de 0 relajaría la alfa «no se reserva en el pasado».
+    # Menos de 0 relajaría la regla del sistema «no se reserva en el pasado».
     TipoDeRegla.ANTICIPACION_MINIMA: {"horas": entero(0)},
     TipoDeRegla.ANTICIPACION_MAXIMA: {"dias": entero(1)},
-    TipoDeRegla.CUPO_POR_UNIDAD: {"reservas": entero(1), "dias": entero(1)},
-    TipoDeRegla.AFORO: {"maximo": entero(1)},
-    TipoDeRegla.FRANJA_HORARIA: {"dias_semana": dias_de_la_semana, "desde": hora, "hasta": hora},
-    TipoDeRegla.DIAS_NO_RESERVABLES: {"dias_semana": dias_de_la_semana, "fechas": fechas},
     TipoDeRegla.REQUIERE_PAZ_Y_SALVO: {},
+    TipoDeRegla.DIAS_QUE_NO_ABRE: {"renglones": renglones},
+    TipoDeRegla.CUPO_POR_UNIDAD: {"reservas": entero(1), "dias": entero(1)},
 }
 
 
 def validar(tipo, parametros):
     """Los parámetros normalizados, o `ParametrosInvalidos`."""
+    if tipo not in PARAMETROS_POR_TIPO:
+        raise ParametrosInvalidos({"tipo": ["Este tipo de regla ya no se usa."]})
     if not isinstance(parametros, dict):
         raise ParametrosInvalidos({"parametros": ["Deben ser un objeto con los parámetros del tipo."]})
     esperados = PARAMETROS_POR_TIPO[tipo]
@@ -98,22 +185,36 @@ def validar(tipo, parametros):
             errores[nombre] = [str(error)]
     if errores:
         raise ParametrosInvalidos(errores)
-
-    if tipo == TipoDeRegla.FRANJA_HORARIA:
-        if not normalizados["dias_semana"]:
-            errores["dias_semana"] = ["Elige al menos un día."]
-        if normalizados["desde"] >= normalizados["hasta"]:
-            errores["hasta"] = ["La hora final debe ser posterior a la inicial."]
-    if tipo == TipoDeRegla.DIAS_NO_RESERVABLES and not normalizados["dias_semana"] and not normalizados["fechas"]:
-        errores["parametros"] = ["Indica al menos un día de la semana o una fecha."]
-    if errores:
-        raise ParametrosInvalidos(errores)
     return normalizados
 
 
 def lista_de_dias(dias):
     nombres = [DIAS[dia] for dia in dias]
     return nombres[0] if len(nombres) == 1 else f"{', '.join(nombres[:-1])} y {nombres[-1]}"
+
+
+def en_letras(fecha):
+    # Django escribe «Diciembre»: se pasa a minúscula, como hace `dia_en_letras` en reservas.
+    return date_format(fecha, r"j \d\e F \d\e Y").lower()
+
+
+def describir_renglon(renglon):
+    if "dia_semana" in renglon:
+        return f"los {DIAS[renglon['dia_semana']]} ({renglon['motivo']})"
+    desde, hasta = date.fromisoformat(renglon["desde"]), date.fromisoformat(renglon["hasta"])
+    if desde == hasta:
+        return f"el {en_letras(desde)} ({renglon['motivo']})"
+    return f"del {en_letras(desde)} al {en_letras(hasta)} ({renglon['motivo']})"
+
+
+def motivos_del_dia(fecha, renglones):
+    """Los motivos por los que el área no abre ese día. Vacío si abre."""
+    return [
+        renglon["motivo"]
+        for renglon in renglones
+        if renglon.get("dia_semana") == fecha.weekday()
+        or ("desde" in renglon and renglon["desde"] <= fecha.isoformat() <= renglon["hasta"])
+    ]
 
 
 def describir(tipo, p):
@@ -135,4 +236,6 @@ def describir(tipo, p):
         if p["fechas"]:
             partes.append(f"el {', '.join(p['fechas'])}")
         return f"No se reserva {' ni '.join(partes)}"
+    if tipo == TipoDeRegla.DIAS_QUE_NO_ABRE:
+        return f"No abre {'; '.join(describir_renglon(renglon) for renglon in p['renglones'])}"
     return "Requiere estar a paz y salvo con la administración"

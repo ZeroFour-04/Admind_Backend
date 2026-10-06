@@ -10,7 +10,7 @@ from apps.areas.models import Area
 from apps.auditoria import servicios as auditoria
 from apps.permisos.servicios import tiene_permiso
 
-CAMPOS_EDITABLES = ("nombre", "descripcion", "hora_apertura", "hora_cierre", "duracion_franja_minutos")
+CAMPOS_EDITABLES = ("nombre", "descripcion", "hora_apertura", "hora_cierre", "duracion_franja_minutos", "aforo_maximo")
 
 
 class NombreRepetido(Exception):

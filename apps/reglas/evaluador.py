@@ -1,21 +1,31 @@
-"""Motor de reglas de reserva (maestro §5.10, HU-13).
+"""Motor de reglas de reserva (definición del 2026-10-06, HU-13).
 
-Evalúa todas las alfas y todas las beta vigentes del área, en AND y sin detenerse en la primera
-falla: la persona ve todos los motivos a la vez. Como todas las reglas solo restringen, no hay
-precedencias ni conflictos.
+Evalúa, en este orden, las reglas del sistema, el aforo del área, las reglas del conjunto (alfa) y
+las del área (beta). Todas en AND y sin detenerse en la primera falla: la persona ve todos los
+motivos a la vez. Como todas las reglas solo restringen, no hay precedencias ni conflictos.
 
-Se aplican las beta vigentes el día en que se evalúa: una solicitud decidida con la versión 1 de
+Se aplican las reglas vigentes el día en que se evalúa: una solicitud decidida con la versión 1 de
 una regla no cambia cuando entra la versión 2, y la copia de la versión queda en la solicitud.
 """
 from datetime import datetime, timedelta
 
 from django.utils import timezone
 
-from apps.reglas import alfa, mora
-from apps.reglas.alfa import Resultado
-from apps.reglas.catalogo import TipoDeRegla, describir, lista_de_dias
+from apps.reglas import mora, sistema
+from apps.reglas.catalogo import NIVEL_POR_TIPO, Nivel, TipoDeRegla, describir, motivos_del_dia
 from apps.reglas.servicios import reglas_vigentes
+from apps.reglas.sistema import Resultado
 from apps.reservas.models import EstadoSolicitud, Solicitud
+
+
+def aforo(solicitud):
+    """El aforo es un dato del área y se evalúa siempre (P8)."""
+    maximo = solicitud.area.aforo_maximo
+    cumple = solicitud.asistentes <= maximo
+    motivo = "" if cumple else f"Esta área admite máximo {maximo} asistentes y la solicitud dice {solicitud.asistentes}."
+    return Resultado(
+        "AFORO", f"Máximo {maximo} asistentes", cumple, motivo, parametros={"maximo": maximo}, nivel=Nivel.BETA.value
+    )
 
 
 def anticipacion_minima(solicitud, p):
@@ -48,24 +58,11 @@ def cupo_por_unidad(solicitud, p):
     )
 
 
-def aforo(solicitud, p):
-    if solicitud.asistentes <= p["maximo"]:
+def dias_que_no_abre(solicitud, p):
+    motivos = motivos_del_dia(solicitud.fecha, p["renglones"])
+    if not motivos:
         return ""
-    return f"Esta área admite máximo {p['maximo']} asistentes y la solicitud dice {solicitud.asistentes}."
-
-
-def franja_horaria(solicitud, p):
-    en_dia = solicitud.fecha.weekday() in p["dias_semana"]
-    en_hora = solicitud.hora_inicio.strftime("%H:%M") >= p["desde"] and solicitud.hora_fin.strftime("%H:%M") <= p["hasta"]
-    if en_dia and en_hora:
-        return ""
-    return f"Esta área solo se reserva los {lista_de_dias(p['dias_semana'])}, de {p['desde']} a {p['hasta']}."
-
-
-def dias_no_reservables(solicitud, p):
-    if solicitud.fecha.weekday() not in p["dias_semana"] and solicitud.fecha.isoformat() not in p["fechas"]:
-        return ""
-    return "Esta área no se reserva ese día."
+    return f"Esta área no abre ese día: {'; '.join(motivos)}."
 
 
 def requiere_paz_y_salvo(solicitud, p):
@@ -74,23 +71,26 @@ def requiere_paz_y_salvo(solicitud, p):
     return "El apartamento no está a paz y salvo con la administración."
 
 
-# Un evaluador por tipo del catálogo. Cada uno devuelve el motivo si no cumple, o "" si cumple.
+# Un evaluador por tipo vigente. Cada uno devuelve el motivo si no cumple, o "" si cumple.
 EVALUADOR_POR_TIPO = {
     TipoDeRegla.ANTICIPACION_MINIMA: anticipacion_minima,
     TipoDeRegla.ANTICIPACION_MAXIMA: anticipacion_maxima,
-    TipoDeRegla.CUPO_POR_UNIDAD: cupo_por_unidad,
-    TipoDeRegla.AFORO: aforo,
-    TipoDeRegla.FRANJA_HORARIA: franja_horaria,
-    TipoDeRegla.DIAS_NO_RESERVABLES: dias_no_reservables,
     TipoDeRegla.REQUIERE_PAZ_Y_SALVO: requiere_paz_y_salvo,
+    TipoDeRegla.DIAS_QUE_NO_ABRE: dias_que_no_abre,
+    TipoDeRegla.CUPO_POR_UNIDAD: cupo_por_unidad,
 }
 
 
 def evaluar(solicitud):
-    """Todas las reglas, en AND. Devuelve un `Resultado` por regla, cumpla o no."""
-    resultados = [regla_alfa(solicitud) for regla_alfa in alfa.ALFAS]
+    """Todas las reglas, en AND: sistema, aforo, del conjunto y del área. Un `Resultado` por regla, cumpla o no."""
+    resultados = [regla(solicitud) for regla in sistema.REGLAS_DEL_SISTEMA]
+    resultados.append(aforo(solicitud))
     for regla in reglas_vigentes(solicitud.area, timezone.localdate()):
-        motivo = EVALUADOR_POR_TIPO[regla.tipo](solicitud, regla.parametros)
+        evaluar_tipo = EVALUADOR_POR_TIPO.get(regla.tipo)
+        if evaluar_tipo is None:
+            # Una regla que se define pero todavía no tiene quién la evalúe (solo con D3 = b).
+            continue
+        motivo = evaluar_tipo(solicitud, regla.parametros)
         resultados.append(
             Resultado(
                 regla.tipo,
@@ -99,6 +99,7 @@ def evaluar(solicitud):
                 motivo,
                 regla_id=regla.id,
                 parametros=regla.parametros,
+                nivel=NIVEL_POR_TIPO[regla.tipo].value,
             )
         )
     return resultados

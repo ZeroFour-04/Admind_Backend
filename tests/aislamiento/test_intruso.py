@@ -251,6 +251,7 @@ def area_comun_de(otro_conjunto):
             hora_apertura=time(8),
             hora_cierre=time(20),
             duracion_franja_minutos=120,
+            aforo_maximo=50,
         )
 
 
@@ -258,7 +259,9 @@ def regla_de(otro_conjunto):
     area = area_comun_de(otro_conjunto)
     autor = usuario_de(otro_conjunto).persona
     with usar_conjunto(otro_conjunto.id):
-        return Regla.objects.create(area=area, tipo="AFORO", parametros={"maximo": 25}, creada_por=autor)
+        return Regla.objects.create(
+            area=area, tipo="CUPO_POR_UNIDAD", parametros={"reservas": 2, "dias": 30}, creada_por=autor
+        )
 
 
 def detalle_de_regla(otro_conjunto):
@@ -267,6 +270,10 @@ def detalle_de_regla(otro_conjunto):
 
 def listado_de_reglas(otro_conjunto):
     return reverse("reglas"), str(regla_de(otro_conjunto).pk)
+
+
+def catalogo_de_reglas(otro_conjunto):
+    return reverse("reglas-catalogo"), str(regla_de(otro_conjunto).pk)
 
 
 def retirar_regla_en(otro_conjunto):
@@ -365,6 +372,7 @@ LISTADOS = {
     "notificaciones": listado_de_notificaciones,
     "areas": listado_de_areas_comunes,
     "reglas": listado_de_reglas,
+    "reglas-catalogo": catalogo_de_reglas,
     "solicitudes": listado_de_solicitudes,
     "visitantes": listado_de_visitantes,
 }

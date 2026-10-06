@@ -1,15 +1,23 @@
 """Pruebas del modelo Conjunto y del asistente de creación (HU-03, HU-26)."""
 import uuid
+from datetime import time
 
 import pytest
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 from rest_framework.test import APIClient
 
+from apps.areas.models import Area
+from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.conjuntos.models import Conjunto
 from apps.cuentas.models import TokenDeSesion, Usuario
+from apps.documentos.models import Reglamento
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
+from apps.reglas.catalogo import TipoDeRegla
+from apps.reglas.models import Regla
+from apps.unidades.models import Unidad
 
 pytestmark = pytest.mark.django_db
 
@@ -216,6 +224,15 @@ def test_conjunto_incompleto_no_queda_operativo(superusuario, torres):
     assert torres.operativo is False
 
 
+def test_sin_viviendas_el_conjunto_no_queda_operativo(superusuario, torres):
+    superusuario.post("/auth/conjunto-activo/", {"conjunto": str(torres.id)}, format="json")
+
+    respuesta = superusuario.post("/conjuntos/actual/activar/")
+
+    assert respuesta.status_code == 400
+    assert "Al menos una vivienda registrada" in respuesta.json()["faltantes"]
+
+
 def test_sin_administracion_la_activacion_lo_dice_explicitamente(superusuario):
     crear(superusuario)
 
@@ -225,9 +242,84 @@ def test_sin_administracion_la_activacion_lo_dice_explicitamente(superusuario):
     assert "Al menos una persona con rol Administración" in respuesta.json()["faltantes"]
 
 
-def test_administracion_no_activa_conjuntos(admin):
-    assert admin.post("/conjuntos/actual/activar/").status_code == 403
-    assert admin.get("/conjuntos/actual/").json()["puede_activar"] is False
+def test_administracion_tambien_activa_su_conjunto_y_un_residente_no(admin, torres):
+    """Desde el 2026-10-06 `conjunto.activar` también es de Administración (plan del asistente, D1 b)."""
+    crear_persona("vecino@torres.com", (Rol.RESIDENTE, torres))
+
+    assert admin.get("/conjuntos/actual/").json()["puede_activar"] is True
+    # Pasa el permiso y se detiene en los requisitos: 400 con lo que falta, no 403.
+    assert admin.post("/conjuntos/actual/activar/").status_code == 400
+    assert cliente_para("vecino@torres.com").post("/conjuntos/actual/activar/").status_code == 403
+
+
+def completar(conjunto, persona, con_reglamento=True, con_reglas_del_conjunto=True):
+    """Lo que el asistente deja guardado paso a paso, creado aquí de una vez."""
+    with usar_conjunto(conjunto.id):
+        Unidad.objects.create(nombre="Torre 1 – Apto 101")
+        salon = Area.objects.create(
+            nombre="Salón comunal",
+            hora_apertura=time(8),
+            hora_cierre=time(22),
+            duracion_franja_minutos=240,
+            aforo_maximo=50,
+        )
+        Regla.objects.create(
+            area=salon, tipo=TipoDeRegla.CUPO_POR_UNIDAD, parametros={"reservas": 2, "dias": 30}, creada_por=persona
+        )
+        if con_reglas_del_conjunto:
+            Regla.objects.create(tipo=TipoDeRegla.ANTICIPACION_MAXIMA, parametros={"dias": 30}, creada_por=persona)
+        if con_reglamento:
+            Reglamento.objects.create(
+                contenido=b"%PDF-1.7 prueba", nombre="reglamento.pdf", peso=15, huella="a" * 64, subido_por=persona
+            )
+
+
+def test_sin_reglamento_el_conjunto_no_queda_operativo(superusuario, torres, admin_torres):
+    completar(torres, admin_torres, con_reglamento=False)
+    superusuario.post("/auth/conjunto-activo/", {"conjunto": str(torres.id)}, format="json")
+
+    respuesta = superusuario.post("/conjuntos/actual/activar/")
+
+    assert respuesta.status_code == 400
+    assert respuesta.json()["faltantes"] == ["Reglamento cargado"]
+
+
+def test_el_limite_de_un_area_no_cuenta_como_reglas_del_conjunto(superusuario, torres, admin_torres):
+    completar(torres, admin_torres, con_reglas_del_conjunto=False)
+    superusuario.post("/auth/conjunto-activo/", {"conjunto": str(torres.id)}, format="json")
+
+    respuesta = superusuario.post("/conjuntos/actual/activar/")
+
+    assert respuesta.status_code == 400
+    assert respuesta.json()["faltantes"] == ["Reglas del conjunto definidas"]
+    torres.refresh_from_db()
+    assert torres.operativo is False
+
+
+def test_al_definir_la_anticipacion_maxima_el_requisito_de_reglas_queda_cumplido(admin, torres, admin_torres):
+    completar(torres, admin_torres, con_reglas_del_conjunto=False)
+
+    def reglas_del_conjunto():
+        requisitos = admin.get("/conjuntos/actual/").json()["requisitos"]
+        return next(requisito for requisito in requisitos if requisito["clave"] == "reglas_del_conjunto")["cumplido"]
+
+    assert reglas_del_conjunto() is False
+    regla = {"tipo": "ANTICIPACION_MAXIMA", "parametros": {"dias": 30}, "vigencia_desde": str(timezone.localdate())}
+    assert admin.post("/reglas/", regla, format="json").status_code == 201
+    assert reglas_del_conjunto() is True
+    assert admin.post("/conjuntos/actual/activar/").status_code == 200
+
+
+def test_un_conjunto_completo_queda_operativo(superusuario, torres, admin_torres):
+    completar(torres, admin_torres)
+    superusuario.post("/auth/conjunto-activo/", {"conjunto": str(torres.id)}, format="json")
+
+    respuesta = superusuario.post("/conjuntos/actual/activar/")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["conjunto"]["operativo"] is True
+    torres.refresh_from_db()
+    assert torres.operativo is True
 
 
 def test_superusuario_configura_el_conjunto_que_crea(superusuario):

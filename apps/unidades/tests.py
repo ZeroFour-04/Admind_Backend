@@ -15,7 +15,7 @@ from apps.cuentas.models import TokenDeSesion, Usuario
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
-from apps.unidades.models import TipoVinculo, Unidad, VinculoUnidad
+from apps.unidades.models import Agrupacion, TipoDeVivienda, TipoVinculo, Unidad, VinculoUnidad
 from apps.unidades.servicios import Hecho, destinatarios, unidades_de, unidades_para_solicitar
 
 pytestmark = pytest.mark.django_db
@@ -113,6 +113,28 @@ def test_la_base_no_deja_que_un_vinculo_apunte_a_una_unidad_de_otro_conjunto(tor
         VinculoUnidad.objects.bulk_create(
             [VinculoUnidad(conjunto=torres, persona=persona, unidad=ajena, tipo=TipoVinculo.PROPIETARIO, reside=True)]
         )
+
+
+def test_no_hay_dos_agrupaciones_con_la_misma_clave(torres):
+    Agrupacion.objects.create(
+        etiqueta="Torre", nombre="1", clave="torre 1", tipo_vivienda=TipoDeVivienda.APARTAMENTO, orden=1
+    )
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Agrupacion.objects.create(
+            etiqueta="TORRE", nombre="1", clave="torre 1", tipo_vivienda=TipoDeVivienda.APARTAMENTO, orden=2
+        )
+
+
+def test_la_base_no_deja_que_una_unidad_apunte_a_una_agrupacion_de_otro_conjunto(torres):
+    mirador = Conjunto.objects.create(nombre="Mirador")
+    with usar_conjunto(mirador.id):
+        ajena = Agrupacion.objects.create(
+            etiqueta="Manzana", nombre="A", clave="manzana a", tipo_vivienda=TipoDeVivienda.CASA, orden=1
+        )
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        # Se salta save() a propósito: la última barrera es la FK compuesta en la base.
+        Unidad.objects.bulk_create([Unidad(conjunto=torres, nombre="Manzana A – Casa 1", agrupacion=ajena)])
 
 
 def test_solo_se_solicita_a_nombre_de_una_unidad_donde_se_reside(apto_402, propietaria_que_arrienda):
@@ -259,3 +281,105 @@ def test_el_usuario_trae_su_persona_y_cada_asignacion(admin, torres, vecinos):
 
     assert usuario["persona"] == str(marta.id)
     assert [(a["rol"], a["nombre"]) for a in usuario["asignaciones"]] == [("residente", "Residente")]
+
+
+# Estructura de viviendas (HU-39)
+
+DOS_TORRES = {
+    "tipo_vivienda": "apartamento",
+    "etiqueta": "Torre",
+    "patron": "piso_consecutivo",
+    "agrupaciones": [{"nombre": "1", "pisos": 10, "por_piso": 4}, {"nombre": "2", "pisos": 12, "por_piso": 4}],
+}
+DOS_MANZANAS = {
+    "tipo_vivienda": "casa",
+    "etiqueta": "Manzana",
+    "patron": "consecutivo",
+    "agrupaciones": [{"nombre": "A", "cantidad": 10}, {"nombre": "B", "cantidad": 15}],
+}
+
+
+def test_previsualizar_dice_lo_que_se_crearia_y_no_guarda_nada(admin, torres):
+    respuesta = admin.post("/unidades/estructura/previsualizar/", DOS_TORRES, format="json")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["nuevas"] == 88
+    assert respuesta.json()["agrupaciones"][1]["ultima"] == "Torre 2 – Apto 1204"
+    assert not Unidad.objects.exists() and not Agrupacion.objects.exists()
+
+
+def test_generar_crea_agrupaciones_y_viviendas_y_deja_un_registro(admin, torres):
+    respuesta = admin.post("/unidades/estructura/", DOS_TORRES, format="json")
+
+    assert respuesta.status_code == 201
+    assert Agrupacion.objects.count() == 2
+    assert Unidad.objects.filter(agrupacion__nombre="2").count() == 48
+    vivienda = Unidad.objects.get(nombre="Torre 1 – Apto 302")
+    assert (vivienda.tipo, vivienda.numero, vivienda.piso) == ("apartamento", "302", 3)
+    assert [registro.accion for registro in Registro.objects.all()] == ["unidad.generar"]
+
+
+def test_generar_dos_veces_lo_mismo_no_duplica(admin, torres):
+    admin.post("/unidades/estructura/", DOS_TORRES, format="json")
+
+    respuesta = admin.post("/unidades/estructura/", DOS_TORRES, format="json")
+
+    assert respuesta.status_code == 200
+    assert (respuesta.json()["nuevas"], respuesta.json()["repetidas"]) == (0, 88)
+    assert (Agrupacion.objects.count(), Unidad.objects.count()) == (2, 88)
+
+
+def test_un_conjunto_mixto_se_genera_en_dos_tandas(admin, torres):
+    assert admin.post("/unidades/estructura/", DOS_TORRES, format="json").status_code == 201
+    assert admin.post("/unidades/estructura/", DOS_MANZANAS, format="json").status_code == 201
+
+    tipos = list(Agrupacion.objects.order_by("orden").values_list("tipo_vivienda", flat=True))
+    assert tipos == ["apartamento", "apartamento", "casa", "casa"]
+    assert Unidad.objects.filter(tipo=TipoDeVivienda.CASA).count() == 25
+    resumen = admin.get("/unidades/agrupaciones/").json()
+    assert [fila["nombre_completo"] for fila in resumen["agrupaciones"]][2:] == ["Manzana A", "Manzana B"]
+    assert (resumen["agrupaciones"][3]["viviendas"], resumen["sin_agrupar"], resumen["total"]) == (15, 0, 113)
+
+
+def test_sin_vinculo_gestionar_no_se_ve_ni_se_genera_la_estructura(torres, vecinos):
+    residente = cliente_para("marta@correo.com")
+
+    assert residente.post("/unidades/estructura/previsualizar/", DOS_TORRES, format="json").status_code == 403
+    assert residente.post("/unidades/estructura/", DOS_TORRES, format="json").status_code == 403
+    assert residente.get("/unidades/agrupaciones/").status_code == 403
+    assert not Unidad.objects.exists()
+
+
+def test_mas_de_dos_mil_viviendas_en_una_tanda_responde_400(admin, torres):
+    cinco_torres = [{"nombre": str(numero), "pisos": 11, "por_piso": 40} for numero in range(1, 6)]
+
+    respuesta = admin.post("/unidades/estructura/", {**DOS_TORRES, "agrupaciones": cinco_torres}, format="json")
+
+    assert respuesta.status_code == 400
+    assert respuesta.json()["non_field_errors"] == ["Son 2200 viviendas. Se registran hasta 2000 a la vez."]
+    assert not Unidad.objects.exists()
+
+
+def test_una_agrupacion_no_cambia_de_tipo_de_vivienda(admin, torres):
+    admin.post("/unidades/estructura/", DOS_TORRES, format="json")
+    casas_en_la_torre = {**DOS_MANZANAS, "etiqueta": "torre", "agrupaciones": [{"nombre": "1", "cantidad": 5}]}
+
+    respuesta = admin.post("/unidades/estructura/", casas_en_la_torre, format="json")
+
+    assert respuesta.status_code == 409
+    assert respuesta.json()["detail"] == "«Torre 1» ya existe y es de otro tipo de vivienda."
+    assert admin.post("/unidades/estructura/previsualizar/", casas_en_la_torre, format="json").status_code == 409
+    assert not Unidad.objects.filter(tipo=TipoDeVivienda.CASA).exists()
+
+
+def test_el_listado_sale_por_agrupacion_y_en_orden_natural(admin, torres):
+    diez_torres = [{"nombre": str(numero), "pisos": 10, "por_piso": 2} for numero in range(1, 11)]
+    admin.post("/unidades/estructura/", {**DOS_TORRES, "agrupaciones": diez_torres}, format="json")
+
+    nombres_en_orden = [unidad["nombre"] for unidad in admin.get("/unidades/").json()]
+
+    def posicion(nombre):
+        return nombres_en_orden.index(nombre)
+
+    assert posicion("Torre 2 – Apto 101") < posicion("Torre 10 – Apto 101")
+    assert posicion("Torre 1 – Apto 902") < posicion("Torre 1 – Apto 1001")

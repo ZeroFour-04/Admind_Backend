@@ -12,10 +12,13 @@ from apps.areas.models import Area
 from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.conjuntos.imagenes import dimensiones
 from apps.conjuntos.models import Conjunto, LogoDeConjunto
+from apps.documentos.models import Reglamento
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.permisos.servicios import conjuntos_disponibles, es_superusuario
+from apps.reglas.catalogo import TipoDeRegla
 from apps.reglas.models import Regla
+from apps.unidades.models import Unidad
 
 TAMANO_MAXIMO_LOGO = 512 * 1024  # bytes
 
@@ -93,10 +96,10 @@ def administradores(conjunto):
 def requisitos_para_operar(conjunto):
     """Lo que el maestro §3.1 exige antes de dejar operativo un conjunto.
 
-    El reglamento todavía no tiene módulo (HU-33). Mientras no exista cuenta como no cumplido, así
-    que ningún conjunto puede quedar operativo: el invariante se mantiene aunque el asistente esté
-    incompleto. Las áreas se cumplen con al menos una activa (HU-09) y las reglas beta, con al
-    menos una vigente (HU-10).
+    Las viviendas se cumplen con al menos una (HU-39), las áreas con al menos una activa (HU-09)
+    y el reglamento con haber cargado uno (HU-33). Las reglas se miran por nivel: cuenta la
+    anticipación máxima del conjunto, la única que todo conjunto necesita. El límite de reservas
+    de un área también es una regla, pero no dice nada del conjunto (HU-10).
     """
     return [
         Requisito(
@@ -109,9 +112,14 @@ def requisitos_para_operar(conjunto):
             "Al menos una persona con rol Administración",
             administradores(conjunto).exists(),
         ),
+        Requisito("viviendas", "Al menos una vivienda registrada", Unidad.objects.exists()),
         Requisito("areas", "Catálogo de áreas comunes", Area.objects.filter(activo=True).exists()),
-        Requisito("reglamento", "Reglamento cargado", False, disponible=False),
-        Requisito("reglas_beta", "Reglas beta de reserva", Regla.objects.vigentes().exists()),
+        Requisito(
+            "reglas_del_conjunto",
+            "Reglas del conjunto definidas",
+            Regla.objects.vigentes().filter(area__isnull=True, tipo=TipoDeRegla.ANTICIPACION_MAXIMA).exists(),
+        ),
+        Requisito("reglamento", "Reglamento cargado", Reglamento.objects.exists()),
     ]
 
 

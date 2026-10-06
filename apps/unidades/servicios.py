@@ -6,14 +6,16 @@ lo decide el canal de `apps/notificaciones/`.
 from enum import Enum
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q
+from django.db.models import Count, F, Max, Q
+from django.db.models.functions import Length
 from django.utils import timezone
 
 from apps.auditoria import servicios as auditoria
 from apps.comun.aislamiento.contexto import conjunto_activo_id
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona
-from apps.unidades.models import TipoVinculo, Unidad, VinculoUnidad
+from apps.unidades import estructura
+from apps.unidades.models import Agrupacion, TipoVinculo, Unidad, VinculoUnidad
 
 
 class Hecho(Enum):
@@ -43,6 +45,18 @@ class NombreRepetido(Exception):
     """Ya hay una unidad con ese nombre en el conjunto."""
 
 
+class AgrupacionDeOtroTipo(Exception):
+    """Ya hay una agrupación con ese nombre y guarda otro tipo de vivienda."""
+
+    def __init__(self, nombre):
+        super().__init__(nombre)
+        self.nombre = nombre
+
+
+class EstructuraCambiada(Exception):
+    """Alguien registró esas mismas viviendas mientras se generaban."""
+
+
 class PersonaSinAsignacion(Exception):
     """La persona no tiene un rol vigente en el conjunto activo (plan P3). Primero se vincula (HU-07)."""
 
@@ -65,7 +79,10 @@ def unidades_del_conjunto():
     vigente = Q(vinculos__vigencia_desde__lte=hoy) & (
         Q(vinculos__vigencia_hasta__isnull=True) | Q(vinculos__vigencia_hasta__gt=hoy)
     )
-    return Unidad.objects.annotate(vinculos_vigentes=Count("vinculos", filter=vigente)).order_by("nombre")
+    # Por el largo del número antes que por el número: así «902» va antes que «1001» sin convertir nada.
+    return Unidad.objects.annotate(vinculos_vigentes=Count("vinculos", filter=vigente)).order_by(
+        F("agrupacion__orden").asc(nulls_last=True), "piso", Length("numero"), "numero", "nombre"
+    )
 
 
 def destinatarios(unidad, hecho):
@@ -95,6 +112,112 @@ def crear_unidad(actor, nombre):
             raise NombreRepetido() from error
         raise
     return unidad
+
+
+def existentes_para(propuestas):
+    """Lo que ya está guardado de lo que se propone: agrupaciones por su clave y nombres de vivienda."""
+    claves = [estructura.clave(p.nombre_completo) for p in propuestas if p.nombre_completo]
+    agrupaciones = {agrupacion.clave: agrupacion for agrupacion in Agrupacion.objects.filter(clave__in=claves)}
+    nombres = [vivienda.nombre for propuesta in propuestas for vivienda in propuesta.viviendas]
+    repetidas = set(Unidad.objects.filter(nombre__in=nombres).values_list("nombre", flat=True))
+    return agrupaciones, repetidas
+
+
+def resumen_de_estructura(tipo_vivienda, propuestas, agrupaciones, repetidas):
+    filas = []
+    for propuesta in propuestas:
+        existente = agrupaciones.get(estructura.clave(propuesta.nombre_completo))
+        if existente and existente.tipo_vivienda != tipo_vivienda:
+            raise AgrupacionDeOtroTipo(propuesta.nombre_completo)
+        nuevas = [vivienda for vivienda in propuesta.viviendas if vivienda.nombre not in repetidas]
+        filas.append({
+            "nombre": propuesta.nombre_completo,
+            "existe": existente is not None,
+            "viviendas": len(propuesta.viviendas),
+            "nuevas": len(nuevas),
+            "primera": propuesta.viviendas[0].nombre,
+            "ultima": propuesta.viviendas[-1].nombre,
+        })
+    total = sum(fila["viviendas"] for fila in filas)
+    nuevas = sum(fila["nuevas"] for fila in filas)
+    return {
+        "tipo_vivienda": tipo_vivienda,
+        "total": total,
+        "nuevas": nuevas,
+        "repetidas": total - nuevas,
+        "agrupaciones": filas,
+    }
+
+
+def previsualizar_estructura(descripcion):
+    """Lo que se crearía, sin guardar nada. Es el mismo cálculo de `generar_estructura`."""
+    propuestas = estructura.generar(descripcion)
+    return resumen_de_estructura(descripcion["tipo_vivienda"], propuestas, *existentes_para(propuestas))
+
+
+def generar_estructura(actor, descripcion):
+    """Crea las agrupaciones y las viviendas que faltan, todas o ninguna. Las que ya existen se omiten."""
+    tipo = descripcion["tipo_vivienda"]
+    propuestas = estructura.generar(descripcion)
+    # bulk_create se salta save(), así que el conjunto se fija aquí: siempre el activo.
+    conjunto_id = conjunto_activo_id()
+    try:
+        with transaction.atomic():
+            agrupaciones, repetidas = existentes_para(propuestas)
+            resumen = resumen_de_estructura(tipo, propuestas, agrupaciones, repetidas)
+            orden = Agrupacion.objects.aggregate(ultimo=Max("orden"))["ultimo"] or 0
+            nuevas = []
+            for propuesta in propuestas:
+                agrupacion = None
+                if propuesta.nombre_completo:
+                    clave = estructura.clave(propuesta.nombre_completo)
+                    agrupacion = agrupaciones.get(clave)
+                    if agrupacion is None:
+                        orden += 1
+                        agrupacion = Agrupacion.objects.create(
+                            etiqueta=propuesta.etiqueta,
+                            nombre=propuesta.nombre,
+                            clave=clave,
+                            tipo_vivienda=tipo,
+                            orden=orden,
+                        )
+                nuevas += [
+                    Unidad(
+                        conjunto_id=conjunto_id,
+                        nombre=vivienda.nombre,
+                        tipo=tipo,
+                        agrupacion=agrupacion,
+                        numero=vivienda.numero,
+                        piso=vivienda.piso,
+                    )
+                    for vivienda in propuesta.viviendas
+                    if vivienda.nombre not in repetidas
+                ]
+            Unidad.objects.bulk_create(nuevas)
+            if nuevas:
+                auditoria.registrar(
+                    actor,
+                    "unidad.generar",
+                    "Unidad",
+                    despues={
+                        "tipo_vivienda": tipo,
+                        "nuevas": resumen["nuevas"],
+                        "repetidas": resumen["repetidas"],
+                        "agrupaciones": [fila["nombre"] for fila in resumen["agrupaciones"]],
+                    },
+                )
+    except IntegrityError as error:
+        raise EstructuraCambiada() from error
+    return resumen
+
+
+def resumen_de_agrupaciones():
+    """Las agrupaciones del conjunto activo con sus viviendas, y cuántas viviendas no tienen agrupación."""
+    return {
+        "agrupaciones": Agrupacion.objects.annotate(viviendas=Count("unidades")).order_by("orden"),
+        "sin_agrupar": Unidad.objects.filter(agrupacion__isnull=True).count(),
+        "total": Unidad.objects.count(),
+    }
 
 
 def detalle_de_unidad(unidad):

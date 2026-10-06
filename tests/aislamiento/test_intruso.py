@@ -15,13 +15,14 @@ from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.comun.aislamiento.vistas import VistaDeConjunto
 from apps.conjuntos.models import Conjunto
 from apps.cuentas.models import TokenDeSesion, Usuario
+from apps.documentos.models import Reglamento
 from apps.notificaciones.models import Notificacion
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
 from apps.reglas.models import Regla
 from apps.reservas.models import Solicitud
-from apps.unidades.models import TipoVinculo, Unidad, VinculoUnidad
+from apps.unidades.models import Agrupacion, TipoVinculo, Unidad, VinculoUnidad
 from apps.visitantes.models import Visitante
 from tests.aislamiento.models import Area
 
@@ -176,6 +177,33 @@ def logo_del_conjunto(otro_conjunto):
     return "put", reverse("conjunto-logo"), intacto
 
 
+def reglamento_de(otro_conjunto):
+    persona = usuario_de(otro_conjunto).persona
+    with usar_conjunto(otro_conjunto.id):
+        return Reglamento.objects.create(
+            contenido=b"%PDF-1.7 ajeno", nombre="ajeno.pdf", peso=14, huella="b" * 64, subido_por=persona
+        )
+
+
+def datos_del_reglamento(otro_conjunto):
+    return reverse("reglamento"), reglamento_de(otro_conjunto).huella
+
+
+def subir_reglamento_en(otro_conjunto):
+    reglamento_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return Reglamento.objects.count() == 1
+
+    return "put", reverse("reglamento"), intacto
+
+
+def archivo_del_reglamento(otro_conjunto):
+    reglamento_de(otro_conjunto)
+    return reverse("reglamento-archivo")
+
+
 def unidad_de(otro_conjunto):
     with usar_conjunto(otro_conjunto.id):
         return Unidad.objects.create(nombre=f"Torre 9 – {Unidad.objects.count() + 101}")
@@ -187,6 +215,28 @@ def listado_de_unidades(otro_conjunto):
 
 def detalle_de_unidad(otro_conjunto):
     return reverse("unidad-detalle", kwargs={"unidad_id": unidad_de(otro_conjunto).pk})
+
+
+def listado_de_agrupaciones(otro_conjunto):
+    with usar_conjunto(otro_conjunto.id):
+        agrupacion = Agrupacion.objects.create(
+            etiqueta="Torre", nombre="9", clave="torre 9", tipo_vivienda="apartamento", orden=1
+        )
+    return reverse("agrupaciones"), str(agrupacion.pk)
+
+
+def estructura_en(nombre_de_ruta):
+    def accion(otro_conjunto):
+        with usar_conjunto(otro_conjunto.id):
+            antes = Unidad.objects.count()
+
+        def intacto():
+            with usar_conjunto(otro_conjunto.id):
+                return Unidad.objects.count() == antes
+
+        return "post", reverse(nombre_de_ruta), intacto
+
+    return accion
 
 
 def registrar_vinculo_en(otro_conjunto):
@@ -361,6 +411,7 @@ DETALLES = {
     "regla-detalle": detalle_de_regla,
     "franjas": franjas_de_area_ajena,
     "solicitud-detalle": detalle_de_solicitud,
+    "reglamento-archivo": archivo_del_reglamento,
 }
 LISTADOS = {
     "pruebas-areas": listado_de_areas,
@@ -368,6 +419,7 @@ LISTADOS = {
     "conjunto-actual": resumen_del_conjunto,
     "conjunto-identidad": identidad_del_conjunto,
     "unidades": listado_de_unidades,
+    "agrupaciones": listado_de_agrupaciones,
     "anuncios": listado_de_anuncios,
     "notificaciones": listado_de_notificaciones,
     "areas": listado_de_areas_comunes,
@@ -375,6 +427,7 @@ LISTADOS = {
     "reglas-catalogo": catalogo_de_reglas,
     "solicitudes": listado_de_solicitudes,
     "visitantes": listado_de_visitantes,
+    "reglamento": datos_del_reglamento,
 }
 # Rutas de conjunto sin identificador ni listado: actúan sobre el conjunto activo.
 ACCIONES = {
@@ -383,6 +436,8 @@ ACCIONES = {
     "area-desactivar": desactivar_area_comun,
     "unidad-vinculos": registrar_vinculo_en,
     "vinculo-cerrar": cerrar_vinculo_en,
+    "estructura-previsualizar": estructura_en("estructura-previsualizar"),
+    "estructura-generar": estructura_en("estructura-generar"),
     "usuario-roles": asignar_rol_en,
     "usuario-rol-cambiar": cambiar_rol_en,
     "usuario-rol-retirar": retirar_rol_en,
@@ -391,6 +446,7 @@ ACCIONES = {
     "regla-retirar": retirar_regla_en,
     "solicitud-liberar": liberar_solicitud_en,
     "solicitud-enviar": enviar_solicitud_en,
+    "reglamento": subir_reglamento_en,
 }
 RUTAS_SIN_CONJUNTO = {
     "iniciar-sesion",

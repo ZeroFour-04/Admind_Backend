@@ -107,10 +107,13 @@ PARAMETROS_VALIDOS = {
 def test_sin_reglas_el_conjunto_no_puede_quedar_operativo(admin, torres):
     def reglas_cumplidas():
         with usar_conjunto(torres.id):
-            return next(r for r in requisitos_para_operar(torres) if r.clave == "reglas_beta").cumplido
+            return next(r for r in requisitos_para_operar(torres) if r.clave == "reglas_del_conjunto").cumplido
 
     assert reglas_cumplidas() is False
+    # La que todo conjunto necesita es la anticipación máxima: otra regla del conjunto no basta.
     crear(admin, "ANTICIPACION_MINIMA", {"horas": 24})
+    assert reglas_cumplidas() is False
+    crear(admin, "ANTICIPACION_MAXIMA", {"dias": 30})
     assert reglas_cumplidas() is True
 
 

@@ -11,7 +11,9 @@ from apps.unidades.serializers import (
     CerrarVinculoSerializer,
     CrearUnidadSerializer,
     DetalleDeUnidadSerializer,
+    EspecificacionSerializer,
     RegistrarVinculoSerializer,
+    ResumenDeAgrupacionesSerializer,
     UnidadSerializer,
     VinculoSerializer,
 )
@@ -47,6 +49,52 @@ class UnidadesView(VistaDeConjunto):
                 {"nombre": ["Ya existe una unidad con este nombre en el conjunto."]}, status=status.HTTP_400_BAD_REQUEST
             )
         return Response(UnidadSerializer(unidad).data, status=status.HTTP_201_CREATED)
+
+
+def agrupacion_de_otro_tipo(error):
+    return Response(
+        {"detail": f"«{error.nombre}» ya existe y es de otro tipo de vivienda."}, status=status.HTTP_409_CONFLICT
+    )
+
+
+class PrevisualizarEstructuraView(VistaDeConjunto):
+    """Lo que se crearía con esa descripción. No guarda nada (HU-39)."""
+
+    def post(self, request):
+        exigir_permiso(request, "vinculo.gestionar")
+        datos = EspecificacionSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        try:
+            return Response(servicios.previsualizar_estructura(datos.validated_data))
+        except servicios.AgrupacionDeOtroTipo as error:
+            return agrupacion_de_otro_tipo(error)
+
+
+class GenerarEstructuraView(VistaDeConjunto):
+    """Crea las viviendas de esa descripción. Las que ya existen se omiten (HU-39)."""
+
+    def post(self, request):
+        exigir_permiso(request, "vinculo.gestionar")
+        datos = EspecificacionSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        try:
+            resumen = servicios.generar_estructura(request.user.persona, datos.validated_data)
+        except servicios.AgrupacionDeOtroTipo as error:
+            return agrupacion_de_otro_tipo(error)
+        except servicios.EstructuraCambiada:
+            return Response(
+                {"detail": "Alguien acaba de registrar esas viviendas. Mira otra vez cómo queda."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(resumen, status=status.HTTP_201_CREATED if resumen["nuevas"] else status.HTTP_200_OK)
+
+
+class AgrupacionesView(VistaDeConjunto):
+    """Las agrupaciones del conjunto activo y cuántas viviendas tiene cada una (HU-39)."""
+
+    def get(self, request):
+        exigir_permiso(request, "vinculo.gestionar")
+        return Response(ResumenDeAgrupacionesSerializer(servicios.resumen_de_agrupaciones()).data)
 
 
 class DetalleDeUnidadView(VistaDeConjunto):

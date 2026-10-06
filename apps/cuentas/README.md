@@ -28,7 +28,7 @@ Todas las rutas exigen `Authorization: Token <token>`, salvo las marcadas *públ
 | `GET` | `/auth/conjuntos/` | Conjuntos donde puede operar: los de sus asignaciones vigentes; el Superusuario, todos los activos | 200 con `id`, `nombre`, `direccion`, `acento`, `logo` (huella o `null`) |
 | `POST` | `/auth/conjunto-activo/` | Elige el conjunto activo (`conjunto`) | 200 con el estado de la sesión · 404 si no puede operar ahí |
 | `GET` | `/auth/usuarios/` | Cuentas con algún rol en el conjunto activo. Exige `usuario.gestionar` | 200 con `roles` en el conjunto activo |
-| `POST` | `/auth/usuarios/` | Crea persona, cuenta y rol en el conjunto activo. Exige `usuario.gestionar` | 201 · 400 si el documento o el correo ya existen · 403 sin conjunto activo |
+| `POST` | `/auth/usuarios/` | Crea persona, cuenta y rol en el conjunto activo. Exige `usuario.gestionar` | 201 · 400 si el documento o el correo ya existen o los datos son inválidos (incluido el teléfono) · 403 sin conjunto activo |
 | `GET` | `/auth/usuarios/<id>/` | Una cuenta del conjunto activo. Exige `usuario.gestionar` | 200 · 404 si no está en el conjunto activo |
 | `POST` | `/auth/recuperar/` | *Pública.* Envía el enlace de recuperación a `correo` | 202 siempre, exista o no la cuenta · 429 al cuarto pedido en una hora para el mismo correo |
 | `POST` | `/auth/recuperar/confirmar/` | *Pública.* Cambia la contraseña con `uid`, `token` y `contrasena`, y cierra las sesiones abiertas | 204 · 400 si el enlace no sirve o la contraseña no cumple las reglas |

@@ -313,6 +313,23 @@ def test_crear_usuario_con_un_documento_que_ya_existe_responde_400_y_no_duplica(
     assert Persona.objects.count() == 1
 
 
+def test_crear_usuario_con_telefono_corto_responde_400_sin_crear_registros(cliente, usuario):
+    activo = Conjunto.objects.create(nombre="Torres del Río")
+    asignar(usuario, Rol.ADMINISTRACION, activo)
+    entrar(cliente)
+
+    respuesta = cliente.post(
+        "/auth/usuarios/",
+        datos_de_usuario(telefono="323123"),
+        format="json",
+    )
+
+    assert respuesta.status_code == 400
+    assert "telefono" in respuesta.json()
+    assert Persona.objects.count() == 1
+    assert not Usuario.objects.filter(correo="carlos@correo.com").exists()
+
+
 def test_crear_usuario_sin_conjunto_activo_responde_403(cliente, usuario):
     asignar(usuario, Rol.SUPERUSUARIO)
     entrar(cliente)

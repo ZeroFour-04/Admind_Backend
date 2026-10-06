@@ -57,7 +57,15 @@ class CrearUsuarioSerializer(serializers.Serializer):
     numero_documento = serializers.CharField(max_length=20)
     nombres = serializers.CharField(max_length=80)
     apellidos = serializers.CharField(max_length=80)
-    telefono = serializers.CharField(max_length=16, allow_blank=True, required=False)
+    telefono = serializers.RegexField(
+        regex=r"^\+?[0-9]{7,15}$",
+        max_length=16,
+        allow_blank=True,
+        required=False,
+        error_messages={
+            "invalid": "El teléfono debe tener entre 7 y 15 dígitos y puede iniciar con +."
+        },
+    )
     correo = serializers.EmailField()
     contrasena = serializers.CharField(write_only=True, trim_whitespace=False)
     rol = serializers.ChoiceField(

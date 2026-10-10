@@ -6,11 +6,19 @@ from datetime import datetime, timedelta
 
 from django.db import IntegrityError, transaction
 
-from apps.areas.models import Area
+from apps.areas.models import Area, ModoDeUso
 from apps.auditoria import servicios as auditoria
 from apps.permisos.servicios import tiene_permiso
 
-CAMPOS_EDITABLES = ("nombre", "descripcion", "hora_apertura", "hora_cierre", "duracion_franja_minutos", "aforo_maximo")
+CAMPOS_EDITABLES = (
+    "nombre",
+    "descripcion",
+    "hora_apertura",
+    "hora_cierre",
+    "duracion_franja_minutos",
+    "permanencia_maxima_minutos",
+    "aforo_maximo",
+)
 
 
 class NombreRepetido(Exception):
@@ -79,7 +87,12 @@ def desactivar(actor, area):
 
 
 def franjas_del_dia(area, fecha):
-    """Los bloques `(hora_inicio, hora_fin)` del día, desde la apertura y sin pasar el cierre (plan D1 a)."""
+    """Los bloques `(hora_inicio, hora_fin)` del día, desde la apertura y sin pasar el cierre (plan D1 a).
+
+    Un área con ingreso no se reserva: no tiene franjas (plan P4).
+    """
+    if area.modo_uso == ModoDeUso.INGRESO:
+        return []
     duracion = timedelta(minutes=area.duracion_franja_minutos)
     inicio = datetime.combine(fecha, area.hora_apertura)
     cierre = datetime.combine(fecha, area.hora_cierre)

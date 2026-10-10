@@ -13,6 +13,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.formats import date_format
 
+from apps.areas.models import ModoDeUso
 from apps.areas.servicios import franjas_del_dia
 from apps.auditoria import servicios as auditoria
 from apps.comun.bloqueo import bloqueo
@@ -43,6 +44,10 @@ class SinUnidadParaSolicitar(Exception):
 
 class AreaNoDisponible(Exception):
     """El área está inactiva o en mantenimiento (HU-09)."""
+
+
+class AreaSinReserva(Exception):
+    """El área es de ingreso: no se aparta, se registra en portería (plan P4)."""
 
 
 class FranjaInvalida(Exception):
@@ -133,6 +138,8 @@ def franjas(persona, area, fecha):
 def tomar_bloqueo(persona, area, fecha, hora_inicio):
     """Crea la solicitud `EN_SOLICITUD` con 3 minutos exclusivos para llenarla y enviarla (HU-11)."""
     expirar_vencidas()
+    if area.modo_uso == ModoDeUso.INGRESO:
+        raise AreaSinReserva()
     if not unidades_para_solicitar(persona).exists():
         raise SinUnidadParaSolicitar()
     if not area.activo or area.en_mantenimiento:

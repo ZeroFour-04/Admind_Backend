@@ -68,6 +68,11 @@ class SolicitudesView(VistaDeConjunto):
         area = area_del_conjunto(campos["area"])
         try:
             solicitud = servicios.tomar_bloqueo(request.user.persona, area, campos["fecha"], campos["hora_inicio"])
+        except servicios.AreaSinReserva:
+            return Response(
+                {"detail": "Esta área no se reserva: el ingreso se registra en portería."},
+                status=status.HTTP_409_CONFLICT,
+            )
         except servicios.SinUnidadParaSolicitar:
             return Response(
                 {"detail": "Para reservar necesitas vivir en un apartamento del conjunto."},

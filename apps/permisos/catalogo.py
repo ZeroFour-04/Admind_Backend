@@ -32,6 +32,7 @@ PERMISOS = PERMISOS_DE_PLATAFORMA | frozenset({
     "reserva.solicitar", "reserva.ver_todas", "reserva.aprobar", "reserva.rechazar", "reserva.cancelar_ajena",
     "usuario.gestionar", "rol.asignar", "vinculo.gestionar",
     "visitante.registrar", "visitante.ver_historico",
+    "ingreso.registrar", "ingreso.ver_historico",
     "caso.crear", "caso.ver_todos", "caso.responder",
     "solicitud.bandeja_ver", "solicitud.priorizar", "solicitud.rechazar_formal",
     "infraccion.registrar", "infraccion.ver", "infraccion.cerrar",
@@ -44,7 +45,7 @@ PERMISOS = PERMISOS_DE_PLATAFORMA | frozenset({
 
 # Exigen segundo factor (HU-02).
 PERMISOS_SENSIBLES = PERMISOS_DE_PLATAFORMA | frozenset({
-    "visitante.ver_historico", "documento.descargar", "respaldo.generar",
+    "visitante.ver_historico", "ingreso.ver_historico", "documento.descargar", "respaldo.generar",
     "usuario.gestionar", "rol.asignar", "auditoria.ver",
     "persona.buscar", "persona.vincular",
     "infraccion.registrar", "infraccion.ver", "infraccion.cerrar",
@@ -61,7 +62,7 @@ PERMISOS_POR_ROL = {
         "area.ver", "area.gestionar",
         "reserva.ver_todas", "reserva.aprobar", "reserva.rechazar", "reserva.cancelar_ajena",
         "usuario.gestionar", "rol.asignar", "vinculo.gestionar",
-        "visitante.ver_historico",
+        "visitante.ver_historico", "ingreso.ver_historico",
         "caso.ver_todos", "caso.responder",
         "solicitud.bandeja_ver", "solicitud.priorizar",
         "infraccion.registrar", "infraccion.ver", "infraccion.cerrar",
@@ -77,7 +78,7 @@ PERMISOS_POR_ROL = {
         "anuncio.publicar", "anuncio.dirigir",
     }),
     Rol.VIGILANCIA: frozenset({
-        "visitante.registrar", "reserva.ver_todas",
+        "visitante.registrar", "reserva.ver_todas", "ingreso.registrar",
     }),
     Rol.RESIDENTE: frozenset({
         "area.ver", "reserva.solicitar", "caso.crear", "cita.agendar_propia", "documento.ver",

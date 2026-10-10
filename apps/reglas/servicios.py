@@ -85,6 +85,12 @@ def crear(actor, tipo, parametros, vigencia_desde, area_id=None):
         area = Area.objects.filter(pk=area_id, activo=True).first()
         if area is None:
             raise AreaNoEncontrada()
+        if area.modo_uso not in catalogo.MODOS_POR_TIPO[tipo]:
+            raise NivelEquivocado(
+                "Esta regla no aplica a un área con ingreso."
+                if area.modo_uso == catalogo.MODO_INGRESO
+                else "Esta regla no aplica a un área con reserva."
+            )
     if Regla.objects.abiertas().filter(tipo=tipo, area=area).exists():
         raise ReglaYaDefinida()
     try:

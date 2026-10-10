@@ -94,6 +94,7 @@ PARAMETROS_VALIDOS = {
     "ANTICIPACION_MAXIMA": ({"dias": 30}, "Se solicita con máximo 30 días de anticipación"),
     "REQUIERE_PAZ_Y_SALVO": ({}, "Requiere estar a paz y salvo con la administración"),
     "CUPO_POR_UNIDAD": ({"reservas": 2, "dias": 30}, "Máximo 2 reservas por apartamento cada 30 días"),
+    "ACOMPANANTES": ({"maximo": 2}, "Máximo 2 acompañantes por vivienda a la vez"),
     "DIAS_QUE_NO_ABRE": (
         {"renglones": [NAVIDAD, {"dia_semana": 0, "motivo": " Limpieza "}]},
         "No abre los lunes (Limpieza); el 25 de diciembre de 2026 (Navidad)",
@@ -283,12 +284,21 @@ def test_el_catalogo_trae_cada_tipo_con_su_nivel_y_su_descripcion(admin):
         ("ANTICIPACION_MINIMA", "alfa"),
         ("ANTICIPACION_MAXIMA", "alfa"),
         ("REQUIERE_PAZ_Y_SALVO", "alfa"),
+        ("ACOMPANANTES", "alfa"),
         ("DIAS_QUE_NO_ABRE", "beta"),
         ("CUPO_POR_UNIDAD", "beta"),
     ]
     assert all(entrada["nombre"] and entrada["descripcion"] for entrada in catalogo)
     assert catalogo[2]["nota"] == "Todavía no restringe: falta el módulo de pagos."
-    assert catalogo[4]["nombre"] == "Límite de reservas por apartamento" and catalogo[4]["nota"] == ""
+    assert catalogo[5]["nombre"] == "Límite de reservas por apartamento" and catalogo[5]["nota"] == ""
+    assert {entrada["tipo"]: entrada["modos"] for entrada in catalogo} == {
+        "ANTICIPACION_MINIMA": ["reserva"],
+        "ANTICIPACION_MAXIMA": ["reserva"],
+        "REQUIERE_PAZ_Y_SALVO": ["reserva", "ingreso"],
+        "ACOMPANANTES": ["ingreso"],
+        "DIAS_QUE_NO_ABRE": ["reserva", "ingreso"],
+        "CUPO_POR_UNIDAD": ["reserva"],
+    }
 
 
 # Lo que hace cumplir la base, aunque alguien se salte el servicio
@@ -496,3 +506,57 @@ def test_una_regla_del_conjunto_se_evalua_en_todas_las_areas(torres, solicitud, 
     for resultados in (en_el_salon, en_el_bbq):
         regla = next(resultado for resultado in resultados if resultado.clave == "ANTICIPACION_MAXIMA")
         assert (regla.cumple, regla.nivel) == (False, "alfa")
+
+
+# Acompañantes y modos (plan de zonas con ingreso, F2)
+
+
+@pytest.fixture
+def gimnasio(torres):
+    with usar_conjunto(torres.id):
+        return Area.objects.create(
+            nombre="Gimnasio",
+            modo_uso="ingreso",
+            hora_apertura=time(5),
+            hora_cierre=time(22),
+            duracion_franja_minutos=None,
+            permanencia_maxima_minutos=60,
+            aforo_maximo=3,
+        )
+
+
+def test_acompanantes_se_define_una_sola_vez_por_conjunto_y_sin_area(admin, gimnasio):
+    primera = crear(admin, "ACOMPANANTES", {"maximo": 0})
+    repetida = crear(admin, "ACOMPANANTES", {"maximo": 2})
+    con_area = crear(admin, "ACOMPANANTES", {"maximo": 2}, gimnasio)
+
+    assert primera.status_code == 201 and primera.json()["descripcion"] == "No se permiten acompañantes"
+    assert repetida.status_code == 409
+    assert con_area.status_code == 400 and "area" in con_area.json()
+
+
+@pytest.mark.parametrize("parametros", [{"maximo": -1}, {}, {"maximo": "2"}, {"maximo": 1, "otro": 1}])
+def test_acompanantes_rechaza_parametros_que_no_sirven(admin, parametros):
+    respuesta = crear(admin, "ACOMPANANTES", parametros)
+
+    assert respuesta.status_code == 400
+    assert not respuesta.json().get("detail")
+
+
+def test_una_regla_de_area_solo_se_define_en_un_area_de_su_modo(admin, salon, gimnasio):
+    cupo = {"reservas": 2, "dias": 30}
+    renglon = {"renglones": [{"dia_semana": 0, "motivo": "Limpieza"}]}
+
+    cupo_en_ingreso = crear(admin, "CUPO_POR_UNIDAD", cupo, gimnasio)
+    cierre_en_ingreso = crear(admin, "DIAS_QUE_NO_ABRE", renglon, gimnasio)
+    cupo_en_reserva = crear(admin, "CUPO_POR_UNIDAD", cupo, salon)
+
+    assert cupo_en_ingreso.status_code == 400
+    assert cupo_en_ingreso.json()["area"] == ["Esta regla no aplica a un área con ingreso."]
+    assert (cierre_en_ingreso.status_code, cupo_en_reserva.status_code) == (201, 201)
+
+
+def test_la_descripcion_de_paz_y_salvo_dice_que_tambien_aplica_al_ingreso(admin):
+    catalogo = {entrada["tipo"]: entrada for entrada in admin.get("/reglas/catalogo/").json()}
+
+    assert "no reserva ni ingresa" in catalogo["REQUIERE_PAZ_Y_SALVO"]["descripcion"]

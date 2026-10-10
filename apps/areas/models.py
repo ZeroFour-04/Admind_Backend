@@ -4,10 +4,17 @@ from django.db.models import F, Q
 from apps.comun.modelos_base.modelos import ModeloDeConjunto
 
 
-class Area(ModeloDeConjunto):
-    """Un área común reservable (HU-09). Sus franjas son bloques fijos desde la apertura (plan D1 a).
+class ModoDeUso(models.TextChoices):
+    RESERVA = "reserva", "Con reserva"
+    INGRESO = "ingreso", "Con ingreso"
 
-    El calendario no se guarda: las franjas se calculan con el horario (maestro §5.1).
+
+class Area(ModeloDeConjunto):
+    """Un área común del conjunto (HU-09), con reserva o con ingreso.
+
+    Con reserva, sus franjas son bloques fijos desde la apertura (plan D1 a) y el calendario no se
+    guarda: se calcula con el horario (maestro §5.1). Con ingreso no se aparta nada: vigilancia
+    registra a quien entra y la permanencia máxima dice cuánto puede quedarse.
     """
 
     # Se redeclara la FK para que el related_name no choque con el Area de tests/aislamiento (plan P1).
@@ -16,7 +23,12 @@ class Area(ModeloDeConjunto):
     descripcion = models.TextField(blank=True)
     hora_apertura = models.TimeField()
     hora_cierre = models.TimeField()
-    duracion_franja_minutos = models.PositiveSmallIntegerField()
+    # Se elige al crear y no cambia (plan D4).
+    modo_uso = models.CharField(max_length=10, choices=ModoDeUso.choices, default=ModoDeUso.RESERVA)
+    # Solo en las áreas con reserva.
+    duracion_franja_minutos = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Solo en las áreas con ingreso: cuánto puede quedarse una persona desde que entra.
+    permanencia_maxima_minutos = models.PositiveSmallIntegerField(null=True, blank=True)
     # Cuántas personas caben. Es obligatorio: toda solicitud se compara con él.
     aforo_maximo = models.PositiveSmallIntegerField()
     en_mantenimiento = models.BooleanField(default=False)
@@ -33,6 +45,19 @@ class Area(ModeloDeConjunto):
                 condition=Q(duracion_franja_minutos__gte=120), name="area_duracion_franja_minima"
             ),
             models.CheckConstraint(condition=Q(aforo_maximo__gte=1), name="area_aforo_maximo_valido"),
+            models.CheckConstraint(
+                condition=Q(
+                    modo_uso=ModoDeUso.RESERVA,
+                    duracion_franja_minutos__isnull=False,
+                    permanencia_maxima_minutos__isnull=True,
+                )
+                | Q(
+                    modo_uso=ModoDeUso.INGRESO,
+                    duracion_franja_minutos__isnull=True,
+                    permanencia_maxima_minutos__isnull=False,
+                ),
+                name="area_modo_coherente",
+            ),
         ]
 
     def __str__(self):

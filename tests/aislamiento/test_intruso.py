@@ -16,6 +16,7 @@ from apps.comun.aislamiento.vistas import VistaDeConjunto
 from apps.conjuntos.models import Conjunto
 from apps.cuentas.models import TokenDeSesion, Usuario
 from apps.documentos.models import Reglamento
+from apps.ingresos.models import Ingreso
 from apps.notificaciones.models import Notificacion
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
@@ -383,6 +384,65 @@ def enviar_solicitud_en(otro_conjunto):
     return "post", reverse("solicitud-enviar", kwargs={"solicitud_id": solicitud.pk}), intacto
 
 
+def ingreso_de(otro_conjunto):
+    with usar_conjunto(otro_conjunto.id):
+        area = AreaComun.objects.create(
+            nombre="Gimnasio",
+            modo_uso="ingreso",
+            hora_apertura=time(5),
+            hora_cierre=time(22),
+            duracion_franja_minutos=None,
+            permanencia_maxima_minutos=60,
+            aforo_maximo=5,
+        )
+        persona = Persona.objects.create(
+            tipo_documento=TipoDocumento.CC,
+            numero_documento=str(Persona.objects.count() + 1023456789),
+            nombres="Ana",
+            apellidos="Ajena",
+        )
+        unidad = Unidad.objects.create(nombre="Casa 1")
+        entrada = timezone.now()
+        return Ingreso.objects.create(
+            area=area,
+            persona=persona,
+            unidad=unidad,
+            entrada_en=entrada,
+            salida_prevista_en=entrada + timedelta(hours=1),
+            registrado_por=persona,
+        )
+
+
+def listado_de_ingresos(otro_conjunto):
+    return reverse("ingresos"), str(ingreso_de(otro_conjunto).pk)
+
+
+def zonas_con_ingreso(otro_conjunto):
+    return reverse("ingresos-zonas"), str(ingreso_de(otro_conjunto).area_id)
+
+
+def buscar_residente_en(otro_conjunto):
+    ingreso = ingreso_de(otro_conjunto)
+    with usar_conjunto(otro_conjunto.id):
+        total = Ingreso.objects.count()
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return Ingreso.objects.count() == total and Ingreso.objects.get(pk=ingreso.pk).estado == "ADENTRO"
+
+    return "post", reverse("ingreso-residentes-buscar"), intacto
+
+
+def salida_en(otro_conjunto):
+    ingreso = ingreso_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return Ingreso.objects.get(pk=ingreso.pk).estado == "ADENTRO"
+
+    return "post", reverse("ingreso-salida", kwargs={"ingreso_id": ingreso.pk}), intacto
+
+
 def detalle_de_area_comun(otro_conjunto):
     return reverse("area-detalle", kwargs={"area_id": area_comun_de(otro_conjunto).pk})
 
@@ -427,6 +487,8 @@ LISTADOS = {
     "reglas-catalogo": catalogo_de_reglas,
     "solicitudes": listado_de_solicitudes,
     "visitantes": listado_de_visitantes,
+    "ingresos": listado_de_ingresos,
+    "ingresos-zonas": zonas_con_ingreso,
     "reglamento": datos_del_reglamento,
 }
 # Rutas de conjunto sin identificador ni listado: actúan sobre el conjunto activo.
@@ -447,6 +509,8 @@ ACCIONES = {
     "solicitud-liberar": liberar_solicitud_en,
     "solicitud-enviar": enviar_solicitud_en,
     "reglamento": subir_reglamento_en,
+    "ingreso-residentes-buscar": buscar_residente_en,
+    "ingreso-salida": salida_en,
 }
 RUTAS_SIN_CONJUNTO = {
     "iniciar-sesion",

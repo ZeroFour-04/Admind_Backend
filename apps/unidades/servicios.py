@@ -13,7 +13,7 @@ from django.utils import timezone
 from apps.auditoria import servicios as auditoria
 from apps.comun.aislamiento.contexto import conjunto_activo_id
 from apps.permisos.models import Asignacion
-from apps.personas.models import Persona
+from apps.personas.models import Persona, normalizar_documento
 from apps.unidades import estructura
 from apps.unidades.models import Agrupacion, TipoVinculo, Unidad, VinculoUnidad
 
@@ -100,6 +100,31 @@ def unidades_para_solicitar(persona):
     """Las unidades a cuyo nombre la persona puede solicitar: vínculo vigente y `reside` (maestro §5.10)."""
     vinculos = VinculoUnidad.objects.vigentes().filter(persona=persona, reside=True)
     return Unidad.objects.filter(pk__in=vinculos.values("unidad_id")).order_by("nombre")
+
+
+def residentes_por_documento(numero):
+    """Quienes viven en el conjunto activo con ese número de documento, cada uno con sus viviendas.
+
+    Solo cuenta quien tiene un vínculo vigente con `reside`: una persona que existe solo en otro
+    conjunto, o un propietario que no vive aquí, no aparece (plan P11). Dos personas pueden
+    compartir número con distinto tipo de documento: llegan las dos y quien consulta elige.
+    Devuelve `[{"persona": Persona, "unidades": [Unidad, ...]}]`.
+    """
+    numero = normalizar_documento(numero)
+    if not numero:
+        return []
+    vinculos = (
+        VinculoUnidad.objects.vigentes()
+        .filter(reside=True, persona__numero_documento=numero, persona__activo=True)
+        .select_related("persona", "unidad")
+        .order_by("persona__tipo_documento", "unidad__nombre")
+    )
+    por_persona = {}
+    for vinculo in vinculos:
+        residente = por_persona.setdefault(vinculo.persona_id, {"persona": vinculo.persona, "unidades": []})
+        if vinculo.unidad not in residente["unidades"]:
+            residente["unidades"].append(vinculo.unidad)
+    return list(por_persona.values())
 
 
 def crear_unidad(actor, nombre):

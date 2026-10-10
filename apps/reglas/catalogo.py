@@ -23,6 +23,7 @@ class TipoDeRegla(models.TextChoices):
     REQUIERE_PAZ_Y_SALVO = "REQUIERE_PAZ_Y_SALVO", "Paz y salvo"
     DIAS_QUE_NO_ABRE = "DIAS_QUE_NO_ABRE", "Días que no abre"
     CUPO_POR_UNIDAD = "CUPO_POR_UNIDAD", "Límite de reservas por apartamento"
+    ACOMPANANTES = "ACOMPANANTES", "Acompañantes"
     # Retirados el 2026-10-06. Quedan para leer el historial: no se crean ni se editan.
     AFORO = "AFORO", "Aforo"
     FRANJA_HORARIA = "FRANJA_HORARIA", "Franja horaria"
@@ -34,8 +35,19 @@ NIVEL_POR_TIPO = {
     TipoDeRegla.ANTICIPACION_MINIMA: Nivel.ALFA,
     TipoDeRegla.ANTICIPACION_MAXIMA: Nivel.ALFA,
     TipoDeRegla.REQUIERE_PAZ_Y_SALVO: Nivel.ALFA,
+    TipoDeRegla.ACOMPANANTES: Nivel.ALFA,
     TipoDeRegla.DIAS_QUE_NO_ABRE: Nivel.BETA,
     TipoDeRegla.CUPO_POR_UNIDAD: Nivel.BETA,
+}
+# A qué modo de uso del área aplica cada tipo vigente (plan P5). Una regla de área solo se define en un área de sus modos.
+MODO_RESERVA, MODO_INGRESO = "reserva", "ingreso"
+MODOS_POR_TIPO = {
+    TipoDeRegla.ANTICIPACION_MINIMA: [MODO_RESERVA],
+    TipoDeRegla.ANTICIPACION_MAXIMA: [MODO_RESERVA],
+    TipoDeRegla.REQUIERE_PAZ_Y_SALVO: [MODO_RESERVA, MODO_INGRESO],
+    TipoDeRegla.ACOMPANANTES: [MODO_INGRESO],
+    TipoDeRegla.DIAS_QUE_NO_ABRE: [MODO_RESERVA, MODO_INGRESO],
+    TipoDeRegla.CUPO_POR_UNIDAD: [MODO_RESERVA],
 }
 # Como texto, porque van dentro de una restricción de la base (F3).
 TIPOS_ALFA = [tipo.value for tipo, nivel in NIVEL_POR_TIPO.items() if nivel == Nivel.ALFA]
@@ -52,7 +64,13 @@ DESCRIPCION_POR_TIPO = {
         "de los próximos 30 días y ninguna posterior."
     ),
     TipoDeRegla.REQUIERE_PAZ_Y_SALVO: (
-        "Si la activas, un apartamento en mora con la administración no puede reservar hasta ponerse al día."
+        "Si la activas, un apartamento en mora con la administración no reserva ni ingresa a las zonas comunes "
+        "hasta ponerse al día."
+    ),
+    TipoDeRegla.ACOMPANANTES: (
+        "Cuántos acompañantes puede tener adentro una misma vivienda a la vez, en las áreas con ingreso. Con 2, "
+        "una vivienda tiene como máximo 2 acompañantes dentro al mismo tiempo. Con 0 no se permiten. Cada "
+        "acompañante ocupa un puesto del aforo."
     ),
     TipoDeRegla.DIAS_QUE_NO_ABRE: (
         "Días de la semana, fechas o periodos en que el área no presta servicio. Cada uno lleva su motivo, "
@@ -76,6 +94,7 @@ def tipos_vigentes():
             "tipo": tipo.value,
             "nivel": nivel.value,
             "nombre": tipo.label,
+            "modos": MODOS_POR_TIPO[tipo],
             "descripcion": DESCRIPCION_POR_TIPO[tipo],
             "nota": NOTA_POR_TIPO.get(tipo, ""),
         }
@@ -161,6 +180,8 @@ PARAMETROS_POR_TIPO = {
     TipoDeRegla.REQUIERE_PAZ_Y_SALVO: {},
     TipoDeRegla.DIAS_QUE_NO_ABRE: {"renglones": renglones},
     TipoDeRegla.CUPO_POR_UNIDAD: {"reservas": entero(1), "dias": entero(1)},
+    # 0 es «no se permiten»: así la regla, como todas, solo restringe (plan D8 a).
+    TipoDeRegla.ACOMPANANTES: {"maximo": entero(0)},
 }
 
 
@@ -225,6 +246,10 @@ def describir(tipo, p):
         return f"Se solicita con máximo {p['dias']} días de anticipación"
     if tipo == TipoDeRegla.CUPO_POR_UNIDAD:
         return f"Máximo {p['reservas']} reservas por apartamento cada {p['dias']} días"
+    if tipo == TipoDeRegla.ACOMPANANTES:
+        if p["maximo"] == 0:
+            return "No se permiten acompañantes"
+        return f"Máximo {p['maximo']} {'acompañante' if p['maximo'] == 1 else 'acompañantes'} por vivienda a la vez"
     if tipo == TipoDeRegla.AFORO:
         return f"Máximo {p['maximo']} asistentes"
     if tipo == TipoDeRegla.FRANJA_HORARIA:

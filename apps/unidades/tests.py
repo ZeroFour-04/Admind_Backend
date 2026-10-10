@@ -16,7 +16,13 @@ from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
 from apps.unidades.models import Agrupacion, TipoDeVivienda, TipoVinculo, Unidad, VinculoUnidad
-from apps.unidades.servicios import Hecho, destinatarios, unidades_de, unidades_para_solicitar
+from apps.unidades.servicios import (
+    Hecho,
+    destinatarios,
+    residentes_por_documento,
+    unidades_de,
+    unidades_para_solicitar,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -383,3 +389,24 @@ def test_el_listado_sale_por_agrupacion_y_en_orden_natural(admin, torres):
 
     assert posicion("Torre 2 – Apto 101") < posicion("Torre 10 – Apto 101")
     assert posicion("Torre 1 – Apto 902") < posicion("Torre 1 – Apto 1001")
+
+
+def test_residentes_por_documento_solo_trae_a_quien_vive_en_el_conjunto_con_sus_viviendas(torres):
+    vecina = Persona.objects.create(
+        tipo_documento=TipoDocumento.CC, numero_documento="1000000001", nombres="Lucía", apellidos="Gómez"
+    )
+    dueno = Persona.objects.create(
+        tipo_documento=TipoDocumento.CC, numero_documento="1000000002", nombres="Dueño", apellidos="Gómez"
+    )
+    primera, segunda = Unidad.objects.create(nombre="Torre 1 – 101"), Unidad.objects.create(nombre="Torre 1 – 102")
+    VinculoUnidad.objects.create(persona=vecina, unidad=primera, tipo=TipoVinculo.ARRENDATARIO, reside=True)
+    VinculoUnidad.objects.create(persona=vecina, unidad=segunda, tipo=TipoVinculo.PROPIETARIO, reside=True)
+    VinculoUnidad.objects.create(persona=dueno, unidad=primera, tipo=TipoVinculo.PROPIETARIO, reside=False)
+
+    encontrados = residentes_por_documento("1.000.000.001")
+
+    assert [(e["persona"], [u.nombre for u in e["unidades"]]) for e in encontrados] == [
+        (vecina, ["Torre 1 – 101", "Torre 1 – 102"])
+    ]
+    assert residentes_por_documento("1000000002") == []
+    assert residentes_por_documento("   ") == []

@@ -15,6 +15,7 @@ Catálogo de permisos, los seis roles y la asignación de roles a personas por c
 - El Superusuario tiene todos los permisos del catálogo en cualquier conjunto; necesita elegir
   un conjunto activo para operar sobre sus datos
 - Marca de **permisos sensibles**, que exigen 2FA
+- `ingreso.registrar` (Vigilancia) e `ingreso.ver_historico` (Administración, sensible): el ingreso a zonas con aforo
 - **Nunca cero gobierno:** la comprobación y el cambio de roles ocurren en la misma transacción (§5.11)
 
 ## Lo que no existe

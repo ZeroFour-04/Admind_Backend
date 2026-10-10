@@ -553,3 +553,21 @@ def test_sin_motivo_o_con_cero_asistentes_no_se_envia(pedro, salon, apartamentos
 
     assert "motivo" in enviar(pedro, en_tramite["id"], apartamentos[0], motivo="").json()
     assert "asistentes" in enviar(pedro, en_tramite["id"], apartamentos[0], asistentes=0).json()
+
+
+# Un área con ingreso no se reserva (plan de zonas con ingreso, F1)
+
+
+def test_un_area_con_ingreso_no_tiene_franjas_ni_se_reserva(torres, pedro):
+    gimnasio = crear_area(
+        torres, "Gimnasio", modo_uso="ingreso", duracion_franja_minutos=None, permanencia_maxima_minutos=60
+    )
+
+    consulta = pedro.get("/reservas/franjas/", {"area": str(gimnasio.id), "fecha": str(MANANA)})
+    respuesta = tomar(pedro, gimnasio)
+
+    assert (consulta.status_code, consulta.json()["franjas"]) == (200, [])
+    assert respuesta.status_code == 409
+    assert respuesta.json()["detail"] == "Esta área no se reserva: el ingreso se registra en portería."
+    with usar_conjunto(torres.id):
+        assert not Solicitud.objects.exists()

@@ -203,3 +203,82 @@ def test_con_un_area_activa_se_cumple_el_requisito_de_areas_para_operar(admin, t
     assert requisito_de_areas() is True
     admin.post(f"/areas/{salon['id']}/desactivar/")
     assert requisito_de_areas() is False
+
+
+# Modo de uso (plan de zonas con ingreso, F1)
+
+GIMNASIO = {
+    "nombre": "Gimnasio",
+    "modo_uso": "ingreso",
+    "hora_apertura": "05:00",
+    "hora_cierre": "22:00",
+    "permanencia_maxima_minutos": 60,
+    "aforo_maximo": 3,
+}
+
+
+def test_un_area_sin_modo_sigue_siendo_con_reserva(admin, salon):
+    assert (salon["modo_uso"], salon["duracion_franja_minutos"], salon["permanencia_maxima_minutos"]) == (
+        "reserva",
+        240,
+        None,
+    )
+
+
+def test_se_crea_un_area_con_ingreso_con_permanencia_y_sin_duracion(admin, torres):
+    respuesta = admin.post("/areas/", GIMNASIO, format="json")
+
+    assert respuesta.status_code == 201
+    assert (
+        respuesta.json()["modo_uso"],
+        respuesta.json()["duracion_franja_minutos"],
+        respuesta.json()["permanencia_maxima_minutos"],
+    ) == ("ingreso", None, 60)
+    assert franjas_del_dia(areas_de(torres)[0], date(2026, 12, 26)) == []
+
+
+def test_cada_modo_pide_sus_campos_y_rechaza_los_del_otro(admin):
+    sin_permanencia = {campo: v for campo, v in GIMNASIO.items() if campo != "permanencia_maxima_minutos"}
+    ingreso_sin = admin.post("/areas/", sin_permanencia, format="json")
+    ingreso_con_duracion = admin.post("/areas/", {**GIMNASIO, "duracion_franja_minutos": 120}, format="json")
+    ingreso_corta = admin.post("/areas/", {**GIMNASIO, "permanencia_maxima_minutos": 10}, format="json")
+    reserva_con_permanencia = admin.post("/areas/", {**SALON, "permanencia_maxima_minutos": 60}, format="json")
+    reserva_sin_duracion = admin.post(
+        "/areas/", {k: v for k, v in SALON.items() if k != "duracion_franja_minutos"}, format="json"
+    )
+
+    assert "permanencia_maxima_minutos" in ingreso_sin.json()
+    assert "duracion_franja_minutos" in ingreso_con_duracion.json()
+    assert "permanencia_maxima_minutos" in ingreso_corta.json()
+    assert "permanencia_maxima_minutos" in reserva_con_permanencia.json()
+    assert "duracion_franja_minutos" in reserva_sin_duracion.json()
+    assert {r.status_code for r in (ingreso_sin, ingreso_con_duracion, ingreso_corta)} == {400}
+
+
+def test_la_base_rechaza_un_area_incoherente_con_su_modo(torres):
+    base = {"hora_apertura": time(8), "hora_cierre": time(22), "aforo_maximo": 5}
+    incoherentes = [
+        {"modo_uso": "ingreso", "duracion_franja_minutos": None, "permanencia_maxima_minutos": None},
+        {"modo_uso": "ingreso", "duracion_franja_minutos": 120, "permanencia_maxima_minutos": 60},
+        {"modo_uso": "reserva", "duracion_franja_minutos": None, "permanencia_maxima_minutos": None},
+        {"modo_uso": "reserva", "duracion_franja_minutos": 120, "permanencia_maxima_minutos": 60},
+    ]
+    for numero, datos in enumerate(incoherentes):
+        with usar_conjunto(torres.id), pytest.raises(IntegrityError), transaction.atomic():
+            Area.objects.create(nombre=f"Zona {numero}", **base, **datos)
+
+
+def test_el_modo_no_cambia_y_cada_modo_edita_solo_lo_suyo(admin, torres, salon):
+    gimnasio = admin.post("/areas/", GIMNASIO, format="json").json()
+
+    cambiar_modo = admin.patch(f"/areas/{gimnasio['id']}/", {"modo_uso": "reserva"}, format="json")
+    permanencia = admin.patch(f"/areas/{gimnasio['id']}/", {"permanencia_maxima_minutos": 90}, format="json")
+    duracion_en_ingreso = admin.patch(f"/areas/{gimnasio['id']}/", {"duracion_franja_minutos": 120}, format="json")
+    permanencia_en_reserva = admin.patch(f"/areas/{salon['id']}/", {"permanencia_maxima_minutos": 90}, format="json")
+
+    assert cambiar_modo.status_code == 400
+    assert cambiar_modo.json()["modo_uso"] == ["El modo de uso no cambia después de crear el área."]
+    assert (permanencia.status_code, permanencia.json()["permanencia_maxima_minutos"]) == (200, 90)
+    assert duracion_en_ingreso.status_code == 400
+    assert permanencia_en_reserva.status_code == 400
+    assert {a.nombre: a.modo_uso for a in areas_de(torres)} == {"Gimnasio": "ingreso", "Salón comunal": "reserva"}

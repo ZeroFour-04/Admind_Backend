@@ -203,8 +203,9 @@ def test_propietario_y_arrendatario_vigentes_coexisten(admin, apto_402, vecinos)
     detalle = admin.get(f"/unidades/{apto_402.id}/").json()
     assert nombres_en(detalle, "vigentes") == ["Marta Gómez", "Pedro Gómez"]
     assert detalle["historicos"] == []
-    assert admin.get("/unidades/").json() == [
-        {"id": str(apto_402.id), "nombre": "Torre 3 – 402", "vinculos_vigentes": 2}
+    unidades = admin.get("/unidades/").json()
+    assert [(u["id"], u["nombre"], u["vinculos_vigentes"]) for u in unidades] == [
+        (str(apto_402.id), "Torre 3 – 402", 2)
     ]
 
 
@@ -410,3 +411,62 @@ def test_residentes_por_documento_solo_trae_a_quien_vive_en_el_conjunto_con_sus_
     ]
     assert residentes_por_documento("1000000002") == []
     assert residentes_por_documento("   ") == []
+
+
+# Listado para buscar por agrupación, persona y documento
+
+def test_el_listado_trae_la_agrupacion_y_las_personas_vigentes_con_su_documento(admin, torres, vecinos):
+    marta, pedro = vecinos
+    admin.post("/unidades/estructura/", DOS_TORRES, format="json")
+    apto = Unidad.objects.get(nombre="Torre 1 – Apto 101")
+    vincular_por_api(admin, apto, marta, "propietario", reside=False)
+    vincular_por_api(admin, apto, pedro, "arrendatario")
+
+    unidades = {unidad["nombre"]: unidad for unidad in admin.get("/unidades/").json()}
+    unidad = unidades["Torre 1 – Apto 101"]
+
+    assert unidad["agrupacion"] == {"id": str(apto.agrupacion_id), "nombre": "Torre 1"}
+    assert (unidad["tipo"], unidad["numero"], unidad["piso"]) == ("apartamento", "101", 1)
+    assert [(p["nombre"], p["tipo"], p["reside"]) for p in unidad["personas"]] == [
+        ("Marta Gómez", "propietario", False),
+        ("Pedro Gómez", "arrendatario", True),
+    ]
+    assert unidad["personas"][0]["documento"] == marta.numero_documento
+    assert unidades["Torre 1 – Apto 102"]["personas"] == []
+
+
+def test_un_vinculo_cerrado_no_aparece_entre_las_personas_de_la_unidad(admin, apto_402, vecinos):
+    marta, _ = vecinos
+    vinculo = vincular_por_api(admin, apto_402, marta, "propietario").json()
+    admin.post(f"/unidades/{apto_402.id}/vinculos/{vinculo['id']}/cerrar/", {}, format="json")
+
+    unidad = admin.get("/unidades/").json()[0]
+
+    assert unidad["personas"] == []
+    assert unidad["vinculos_vigentes"] == 0
+
+
+def test_quien_solo_dirige_anuncios_o_registra_visitantes_no_recibe_personas_ni_documentos(torres, apto_402, vecinos):
+    marta, _ = vecinos
+    VinculoUnidad.objects.create(persona=marta, unidad=apto_402, tipo=TipoVinculo.PROPIETARIO, reside=True)
+    con_cuenta("secretaria@torres.com", Rol.SECRETARIA, torres)
+    con_cuenta("porteria@torres.com", Rol.VIGILANCIA, torres)
+
+    for correo in ("secretaria@torres.com", "porteria@torres.com"):
+        respuesta = cliente_para(correo).get("/unidades/")
+
+        assert respuesta.status_code == 200
+        assert "personas" not in respuesta.json()[0]
+        assert str(marta.numero_documento) not in respuesta.content.decode()
+        assert respuesta.json()[0]["vinculos_vigentes"] == 1
+
+
+def test_el_detalle_dice_a_que_agrupacion_pertenece_la_vivienda(admin, torres, apto_402):
+    admin.post("/unidades/estructura/", DOS_TORRES, format="json")
+    en_torre = Unidad.objects.get(nombre="Torre 2 – Apto 101")
+
+    detalle = admin.get(f"/unidades/{en_torre.id}/").json()
+    suelta = admin.get(f"/unidades/{apto_402.id}/").json()
+
+    assert detalle["agrupacion"] == {"id": str(en_torre.agrupacion_id), "nombre": "Torre 2"}
+    assert suelta["agrupacion"] is None

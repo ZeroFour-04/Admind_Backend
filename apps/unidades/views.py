@@ -4,7 +4,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
 from apps.comun.aislamiento.vistas import VistaDeConjunto
-from apps.permisos.views import exigir_permiso
+from apps.permisos.views import exigir_permiso, tiene_permiso_en_conjunto
 from apps.unidades import servicios
 from apps.unidades.models import Unidad
 from apps.unidades.serializers import (
@@ -14,6 +14,7 @@ from apps.unidades.serializers import (
     EspecificacionSerializer,
     RegistrarVinculoSerializer,
     ResumenDeAgrupacionesSerializer,
+    UnidadConPersonasSerializer,
     UnidadSerializer,
     VinculoSerializer,
 )
@@ -28,7 +29,14 @@ def unidad_del_conjunto(unidad_id):
 
 
 def detalle(unidad):
-    return DetalleDeUnidadSerializer({"id": unidad.id, "nombre": unidad.nombre, **servicios.detalle_de_unidad(unidad)}).data
+    agrupacion = unidad.agrupacion
+    datos = {
+        "id": unidad.id,
+        "nombre": unidad.nombre,
+        "agrupacion": {"id": agrupacion.id, "nombre": str(agrupacion)} if agrupacion else None,
+        **servicios.detalle_de_unidad(unidad),
+    }
+    return DetalleDeUnidadSerializer(datos).data
 
 
 class UnidadesView(VistaDeConjunto):
@@ -36,6 +44,11 @@ class UnidadesView(VistaDeConjunto):
 
     def get(self, request):
         exigir_permiso(request, "vinculo.gestionar", "anuncio.dirigir", "visitante.registrar")
+        # Las personas y sus documentos solo salen para quien gestiona vínculos, no para Anuncios ni Portería.
+        if tiene_permiso_en_conjunto(request, "vinculo.gestionar"):
+            return Response(
+                UnidadConPersonasSerializer(servicios.unidades_del_conjunto(con_personas=True), many=True).data
+            )
         return Response(UnidadSerializer(servicios.unidades_del_conjunto(), many=True).data)
 
     def post(self, request):

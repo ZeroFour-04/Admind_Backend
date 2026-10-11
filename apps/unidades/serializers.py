@@ -12,6 +12,35 @@ class UnidadSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     nombre = serializers.CharField()
     vinculos_vigentes = serializers.IntegerField(required=False)
+    tipo = serializers.CharField()
+    numero = serializers.CharField()
+    piso = serializers.IntegerField(allow_null=True)
+    agrupacion = serializers.SerializerMethodField()
+
+    def get_agrupacion(self, unidad):
+        if unidad.agrupacion_id is None:
+            return None
+        return {"id": unidad.agrupacion_id, "nombre": str(unidad.agrupacion)}
+
+
+class UnidadConPersonasSerializer(UnidadSerializer):
+    """Suma quién tiene un vínculo vigente con la unidad. Solo para quien gestiona vínculos.
+
+    El documento va para que el administrador pueda buscar por él; la pantalla no lo imprime.
+    """
+
+    personas = serializers.SerializerMethodField()
+
+    def get_personas(self, unidad):
+        return [
+            {
+                "nombre": str(vinculo.persona),
+                "documento": vinculo.persona.numero_documento,
+                "tipo": vinculo.tipo,
+                "reside": vinculo.reside,
+            }
+            for vinculo in unidad.vinculos_de_hoy
+        ]
 
 
 class CrearUnidadSerializer(serializers.Serializer):
@@ -94,9 +123,15 @@ class VinculoSerializer(serializers.Serializer):
         return {"id": vinculo.persona_id, "nombre": str(vinculo.persona)}
 
 
+class AgrupacionDeUnidadSerializer(serializers.Serializer):
+    id = serializers.UUIDField()
+    nombre = serializers.CharField()
+
+
 class DetalleDeUnidadSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     nombre = serializers.CharField()
+    agrupacion = AgrupacionDeUnidadSerializer(allow_null=True)
     vigentes = VinculoSerializer(many=True)
     historicos = VinculoSerializer(many=True)
 

@@ -6,7 +6,7 @@ lo decide el canal de `apps/notificaciones/`.
 from enum import Enum
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count, F, Max, Q
+from django.db.models import Count, F, Max, Prefetch, Q
 from django.db.models.functions import Length
 from django.utils import timezone
 
@@ -73,16 +73,26 @@ class CierreAntesDelInicio(Exception):
     """La fecha de cierre es anterior al inicio del vínculo."""
 
 
-def unidades_del_conjunto():
-    """Las unidades con cuántos vínculos vigentes tiene cada una."""
+def unidades_del_conjunto(con_personas=False):
+    """Las unidades con su agrupación y cuántos vínculos vigentes tiene cada una.
+
+    Con `con_personas`, cada unidad trae en `vinculos_de_hoy` sus vínculos vigentes con la persona:
+    es lo que busca el administrador por nombre o documento. Quien lo pide decide si puede verlo.
+    """
     hoy = timezone.localdate()
     vigente = Q(vinculos__vigencia_desde__lte=hoy) & (
         Q(vinculos__vigencia_hasta__isnull=True) | Q(vinculos__vigencia_hasta__gt=hoy)
     )
     # Por el largo del número antes que por el número: así «902» va antes que «1001» sin convertir nada.
-    return Unidad.objects.annotate(vinculos_vigentes=Count("vinculos", filter=vigente)).order_by(
-        F("agrupacion__orden").asc(nulls_last=True), "piso", Length("numero"), "numero", "nombre"
+    unidades = (
+        Unidad.objects.select_related("agrupacion")
+        .annotate(vinculos_vigentes=Count("vinculos", filter=vigente))
+        .order_by(F("agrupacion__orden").asc(nulls_last=True), "piso", Length("numero"), "numero", "nombre")
     )
+    if con_personas:
+        vigentes = VinculoUnidad.objects.vigentes().select_related("persona").order_by("-tipo", "vigencia_desde")
+        unidades = unidades.prefetch_related(Prefetch("vinculos", queryset=vigentes, to_attr="vinculos_de_hoy"))
+    return unidades
 
 
 def destinatarios(unidad, hecho):

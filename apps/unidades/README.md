@@ -17,7 +17,7 @@ Lo mínimo que necesita HU-25, construido el 2026-09-22. El resto es de HU-08.
 
 - `Unidad` (nombre único en el conjunto) y `VinculoUnidad`, las dos con `ModeloDeConjunto`; el vínculo apunta a la unidad con FK compuesta
 - `servicios.destinatarios(unidad, hecho)`: la tabla del §5.5 como consulta, más el anuncio dirigido a una vivienda (§5.7), que llega a todo vínculo vigente
-- `GET /unidades/`: las unidades del conjunto activo, con `vinculo.gestionar` o `anuncio.dirigir`
+- `GET /unidades/`: las unidades del conjunto activo, con `vinculo.gestionar`, `anuncio.dirigir` o `visitante.registrar`. Cada una trae su agrupación, tipo, número y piso; **solo con `vinculo.gestionar`** trae además `personas` (nombre, documento, tipo de vínculo y `reside`) de sus vínculos vigentes, para el buscador de la pantalla Unidades. `GET /unidades/<id>/` suma `agrupacion` (`{id, nombre}` o `null`) para que el front vuelva a su bloque
 - Crear unidades y vínculos por la API (HU-08): `POST /unidades/`, `GET /unidades/<id>/`, `POST /unidades/<id>/vinculos/` y `POST …/vinculos/<id>/cerrar/`, con `vinculo.gestionar`
 
 ## Estructura de viviendas (HU-39, primera parte, 2026-10-06)

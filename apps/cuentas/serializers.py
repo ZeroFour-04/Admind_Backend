@@ -6,7 +6,7 @@ from apps.cuentas import dos_factores
 from apps.cuentas.models import Usuario
 from apps.permisos.catalogo import ROLES_DE_CONJUNTO, Rol
 from apps.permisos.models import Asignacion
-from apps.permisos.servicios import permisos_efectivos
+from apps.permisos.servicios import permisos_efectivos, puede_crear_conjuntos
 from apps.personas.models import Persona, TipoDocumento, normalizar_documento
 
 
@@ -37,6 +37,9 @@ def estado_de_la_sesion(sesion):
     return {
         "conjunto_activo": ConjuntoResumenSerializer(conjunto).data if conjunto else None,
         "permisos": sorted(permisos_efectivos(sesion.usuario.persona, sesion.conjunto_activo_id)),
+        # Aparte de `permisos`, que son los del conjunto activo: sin uno elegido vienen vacíos y el
+        # selector igual debe ofrecer crear conjunto a quien administra alguno.
+        "puede_crear_conjunto": puede_crear_conjuntos(sesion.usuario.persona),
         "roles": roles,
         "tipo_usuario": ", ".join(roles) or "Usuario",
         "dos_factores": dos_factores.estado(sesion),
@@ -104,6 +107,12 @@ class UsuarioResumenSerializer(serializers.Serializer):
     # La Persona y cada asignación: los usan los vínculos de unidad (HU-08) y los roles (HU-06).
     persona = serializers.UUIDField(source="persona.id")
     asignaciones = serializers.SerializerMethodField()
+    # Dónde vive, para ordenar la lista por agrupación (HU-06).
+    unidades = serializers.SerializerMethodField()
+
+    def get_unidades(self, usuario):
+        """Las viviendas vigentes que la vista puso en el contexto; sin ellas (el perfil) va vacío."""
+        return self.context.get("viviendas", {}).get(usuario.persona_id, [])
 
     def get_nombre(self, usuario):
         return str(usuario.persona)

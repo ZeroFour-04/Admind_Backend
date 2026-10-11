@@ -4,7 +4,7 @@ Cada vista valida, exige su permiso y llama al servicio.
 """
 from django.http import HttpResponse
 from rest_framework import status
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -20,8 +20,8 @@ from apps.conjuntos.serializers import (
 )
 from apps.cuentas import servicios as servicios_de_cuentas
 from apps.cuentas.serializers import estado_de_la_sesion
-from apps.permisos.servicios import tiene_permiso
-from apps.permisos.views import exigir_permiso
+from apps.permisos.servicios import puede_crear_conjuntos, tiene_permiso
+from apps.permisos.views import MENSAJE_SIN_PERMISO, exigir_permiso
 
 
 def resumen_del_asistente(request, conjunto):
@@ -39,12 +39,14 @@ def resumen_del_asistente(request, conjunto):
 class CrearConjuntoView(APIView):
     """Paso 1: datos básicos.
 
-    No hereda de VistaDeConjunto porque el Superusuario crea conjuntos sin tener uno activo.
-    Administración, en cambio, recibe `conjunto.crear` de su rol en el conjunto activo.
+    No hereda de VistaDeConjunto porque se crea desde el selector, sin conjunto activo. El permiso
+    `conjunto.crear` se mira en todos los conjuntos de la persona (Superusuario o Administración),
+    no solo en el activo: quien administra uno puede crear otro apenas inicia sesión.
     """
 
     def post(self, request):
-        exigir_permiso(request, "conjunto.crear")
+        if not puede_crear_conjuntos(request.user.persona):
+            raise PermissionDenied(MENSAJE_SIN_PERMISO)
         datos = DatosDeConjuntoSerializer(data=request.data)
         datos.is_valid(raise_exception=True)
         conjunto = servicios.crear_conjunto(request.user.persona, **datos.validated_data)

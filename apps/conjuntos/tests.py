@@ -140,13 +140,42 @@ def test_sin_el_permiso_conjunto_crear_recibe_403(torres):
     assert not Conjunto.objects.filter(nombre="Mirador").exists()
 
 
-def test_administracion_sin_conjunto_activo_no_puede_crear(torres):
+def test_administracion_sin_conjunto_activo_puede_crear(torres):
+    otro = Conjunto.objects.create(nombre="Balcones")
+    persona = crear_persona("admin@dos.com", (Rol.ADMINISTRACION, torres), (Rol.ADMINISTRACION, otro))
+    # Con dos conjuntos entra sin conjunto activo: crear no depende de estar dentro de uno.
+    cliente = cliente_para("admin@dos.com")
+    assert TokenDeSesion.objects.get().conjunto_activo_id is None
+
+    respuesta = crear(cliente)
+
+    assert respuesta.status_code == 201
+    nuevo = Conjunto.objects.get(nombre="Mirador")
+    assert Asignacion.objects.filter(persona=persona, rol=Rol.ADMINISTRACION, conjunto=nuevo).exists()
+    assert TokenDeSesion.objects.get().conjunto_activo_id == nuevo.id
+
+
+def test_el_ingreso_avisa_si_puede_crear_conjuntos_aunque_no_haya_conjunto_activo(torres):
     otro = Conjunto.objects.create(nombre="Balcones")
     crear_persona("admin@dos.com", (Rol.ADMINISTRACION, torres), (Rol.ADMINISTRACION, otro))
-    # Con dos conjuntos entra sin conjunto activo: el permiso sale de su rol en el conjunto activo.
-    cliente = cliente_para("admin@dos.com")
+    crear_persona("vecino@dos.com", (Rol.RESIDENTE, torres), (Rol.RESIDENTE, otro))
+
+    admin_dos = APIClient().post("/auth/login/", {"correo": "admin@dos.com", "contrasena": CONTRASENA}, format="json")
+    vecino_dos = APIClient().post("/auth/login/", {"correo": "vecino@dos.com", "contrasena": CONTRASENA}, format="json")
+
+    assert admin_dos.json()["conjunto_activo"] is None
+    assert admin_dos.json()["permisos"] == []
+    assert admin_dos.json()["puede_crear_conjunto"] is True
+    assert vecino_dos.json()["puede_crear_conjunto"] is False
+
+
+def test_residente_sin_conjunto_activo_sigue_sin_poder_crear(torres):
+    otro = Conjunto.objects.create(nombre="Balcones")
+    crear_persona("vecino@dos.com", (Rol.RESIDENTE, torres), (Rol.RESIDENTE, otro))
+    cliente = cliente_para("vecino@dos.com")
 
     assert crear(cliente).status_code == 403
+    assert not Conjunto.objects.filter(nombre="Mirador").exists()
 
 
 def test_el_asistente_crea_el_conjunto_con_un_color_propio(admin):

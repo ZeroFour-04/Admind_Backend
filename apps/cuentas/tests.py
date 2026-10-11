@@ -8,12 +8,14 @@ from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.conjuntos.models import Conjunto
 from apps.cuentas.limites import LimiteDeEnlacesPorCorreo
 from apps.cuentas.models import TokenDeSesion, Usuario
 from apps.permisos.catalogo import PERMISOS, PERMISOS_POR_ROL, Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
+from apps.unidades.models import Agrupacion, TipoDeVivienda, TipoVinculo, Unidad, VinculoUnidad
 
 pytestmark = pytest.mark.django_db
 
@@ -360,6 +362,37 @@ def test_la_lista_de_usuarios_solo_trae_los_del_conjunto_activo_con_sus_roles_ah
     assert respuesta.status_code == 200
     assert [u["correo"] for u in respuesta.json()] == ["laura@correo.com"]
     assert respuesta.json()[0]["roles"] == ["Administración"]
+
+
+def test_la_lista_de_usuarios_trae_su_vivienda_vigente_del_conjunto_activo(cliente, usuario):
+    torres = Conjunto.objects.create(nombre="Torres del Río")
+    mirador = Conjunto.objects.create(nombre="Mirador")
+    asignar(usuario, Rol.ADMINISTRACION, torres)
+    ana = Persona.objects.create(tipo_documento=TipoDocumento.CC, numero_documento="55555", nombres="Ana", apellidos="Ruiz")
+    Usuario.objects.create_user("ana@correo.com", CONTRASENA, ana)
+    Asignacion.objects.create(persona=ana, rol=Rol.RESIDENTE, conjunto=torres)
+    with usar_conjunto(torres.id):
+        torre = Agrupacion.objects.create(
+            etiqueta="Torre", nombre="3", clave="torre 3", tipo_vivienda=TipoDeVivienda.APARTAMENTO, orden=2
+        )
+        apto = Unidad.objects.create(nombre="Torre 3 – 402", agrupacion=torre)
+        suelta = Unidad.objects.create(nombre="Casa 7")
+        # Dos vínculos sobre la misma vivienda: la vivienda sale una vez.
+        VinculoUnidad.objects.create(persona=ana, unidad=apto, tipo=TipoVinculo.PROPIETARIO, reside=True)
+        VinculoUnidad.objects.create(persona=ana, unidad=apto, tipo=TipoVinculo.ARRENDATARIO, reside=True)
+        VinculoUnidad.objects.create(persona=ana, unidad=suelta, tipo=TipoVinculo.PROPIETARIO, reside=False)
+    with usar_conjunto(mirador.id):
+        otra = Unidad.objects.create(nombre="Mirador 1 – 101")
+        VinculoUnidad.objects.create(persona=ana, unidad=otra, tipo=TipoVinculo.PROPIETARIO, reside=True)
+    entrar(cliente)
+
+    por_correo = {u["correo"]: u for u in cliente.get("/auth/usuarios/").json()}
+
+    assert por_correo["ana@correo.com"]["unidades"] == [
+        {"nombre": "Casa 7", "agrupacion": "", "orden": None},
+        {"nombre": "Torre 3 – 402", "agrupacion": "Torre 3", "orden": 2},
+    ]
+    assert por_correo["laura@correo.com"]["unidades"] == []
 
 
 def test_residente_no_puede_gestionar_usuarios(cliente, usuario):

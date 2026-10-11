@@ -106,6 +106,32 @@ def unidades_de(persona):
     return Unidad.objects.filter(pk__in=VinculoUnidad.objects.vigentes().filter(persona=persona).values("unidad_id"))
 
 
+def viviendas_de_las_personas(personas_ids):
+    """Las viviendas con vínculo vigente de cada persona: `{persona_id: [{nombre, agrupacion, orden}]}`.
+
+    Una sola consulta, para listar a varias personas con su vivienda. Una vivienda sale una vez aunque
+    la persona tenga ahí dos vínculos (propietaria y que reside). `orden` es el de la agrupación, el
+    mismo con que se listan las viviendas («Torre 2» antes que «Torre 10»); `None` si no tiene.
+    Quien llama decide si puede mostrarlo.
+    """
+    vinculos = (
+        VinculoUnidad.objects.vigentes()
+        .filter(persona_id__in=personas_ids)
+        .select_related("unidad__agrupacion")
+        .order_by("unidad__nombre")
+    )
+    viviendas = {}
+    for vinculo in vinculos:
+        unidad = vinculo.unidad
+        agrupacion = unidad.agrupacion
+        viviendas.setdefault(vinculo.persona_id, {})[unidad.id] = {
+            "nombre": unidad.nombre,
+            "agrupacion": str(agrupacion) if agrupacion else "",
+            "orden": agrupacion.orden if agrupacion else None,
+        }
+    return {persona_id: list(unidades.values()) for persona_id, unidades in viviendas.items()}
+
+
 def unidades_para_solicitar(persona):
     """Las unidades a cuyo nombre la persona puede solicitar: vínculo vigente y `reside` (maestro §5.10)."""
     vinculos = VinculoUnidad.objects.vigentes().filter(persona=persona, reside=True)

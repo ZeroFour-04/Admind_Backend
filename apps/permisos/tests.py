@@ -14,7 +14,7 @@ from apps.permisos.catalogo import (
     Rol,
 )
 from apps.permisos.models import Asignacion
-from apps.permisos.servicios import permisos_efectivos
+from apps.permisos.servicios import permisos_efectivos, puede_crear_conjuntos
 from apps.personas.models import Persona, TipoDocumento
 
 pytestmark = pytest.mark.django_db
@@ -55,7 +55,7 @@ def test_superusuario_tiene_todos_los_permisos_del_catalogo():
     assert permisos == PERMISOS
 
 
-def test_administracion_puede_crear_conjuntos_desde_el_conjunto_activo():
+def test_administracion_tiene_el_permiso_de_crear_conjuntos():
     assert "conjunto.crear" in PERMISOS_POR_ROL[Rol.ADMINISTRACION]
 
 
@@ -184,3 +184,41 @@ def test_superusuario_tiene_todos_los_permisos_en_cualquier_conjunto_y_sin_conju
 
     assert permisos_efectivos(persona, None) == PERMISOS
     assert permisos_efectivos(persona, conjunto.id) == PERMISOS
+
+
+# Crear conjuntos
+
+
+def test_administracion_puede_crear_conjuntos_sin_estar_dentro_de_uno(persona, conjunto):
+    Asignacion.objects.create(persona=persona, rol=Rol.ADMINISTRACION, conjunto=conjunto)
+
+    assert permisos_efectivos(persona, None) == set()
+    assert puede_crear_conjuntos(persona) is True
+
+
+def test_superusuario_puede_crear_conjuntos(persona):
+    Asignacion.objects.create(persona=persona, rol=Rol.SUPERUSUARIO)
+
+    assert puede_crear_conjuntos(persona) is True
+
+
+def test_quien_no_es_administracion_no_puede_crear_conjuntos(persona, conjunto):
+    Asignacion.objects.create(persona=persona, rol=Rol.SECRETARIA, conjunto=conjunto)
+
+    assert puede_crear_conjuntos(persona) is False
+
+
+def test_administracion_de_un_conjunto_desactivado_no_puede_crear_conjuntos(persona, conjunto):
+    Asignacion.objects.create(persona=persona, rol=Rol.ADMINISTRACION, conjunto=conjunto)
+    Conjunto.objects.filter(pk=conjunto.pk).update(activo=False)
+
+    assert puede_crear_conjuntos(persona) is False
+
+
+def test_administracion_con_la_vigencia_cerrada_no_puede_crear_conjuntos(persona, conjunto):
+    hoy = timezone.localdate()
+    Asignacion.objects.create(
+        persona=persona, rol=Rol.ADMINISTRACION, conjunto=conjunto, vigencia_desde=hoy - timedelta(days=30), vigencia_hasta=hoy
+    )
+
+    assert puede_crear_conjuntos(persona) is False

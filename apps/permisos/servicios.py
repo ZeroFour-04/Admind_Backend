@@ -85,6 +85,23 @@ def tiene_permisos_sensibles(persona):
     return any(PERMISOS_POR_ROL[rol] & PERMISOS_SENSIBLES for rol in roles)
 
 
+def puede_crear_conjuntos(persona):
+    """Si alguno de sus roles vigentes trae `conjunto.crear`, en la plataforma o en un conjunto activo.
+
+    Crear un conjunto no es una operación dentro de uno: se hace desde el selector, antes de elegir
+    ninguno. Por eso se mira en todos sus conjuntos y no solo en el activo. Un conjunto desactivado
+    no cuenta: desde él no podría ni entrar.
+    """
+    roles = (
+        Asignacion.objects.vigentes()
+        .filter(persona=persona)
+        .filter(Q(conjunto__isnull=True) | Q(conjunto__activo=True))
+        .values_list("rol", flat=True)
+        .distinct()
+    )
+    return any("conjunto.crear" in PERMISOS_POR_ROL[rol] for rol in roles)
+
+
 # Asignar y retirar roles (HU-06)
 
 

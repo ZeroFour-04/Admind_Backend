@@ -26,6 +26,7 @@ from apps.permisos import servicios as roles
 from apps.permisos.models import Asignacion
 from apps.permisos.servicios import conjuntos_disponibles
 from apps.permisos.views import exigir_permiso
+from apps.unidades import servicios as unidades
 
 MENSAJE_CREDENCIALES_INVALIDAS = "Correo o contraseña incorrectos."
 MENSAJE_RECUPERACION_ENVIADA = (
@@ -94,11 +95,16 @@ class ConjuntoActivoView(APIView):
 # Usuarios del conjunto activo
 
 
+def con_viviendas(usuarios):
+    """El contexto del serializer: las viviendas vigentes de esas cuentas, en una sola consulta."""
+    return {"viviendas": unidades.viviendas_de_las_personas([usuario.persona_id for usuario in usuarios])}
+
+
 class UsuariosView(VistaDeConjunto):
     def get(self, request):
         exigir_permiso(request, "usuario.gestionar")
-        usuarios = servicios.usuarios_del_conjunto(request.auth.conjunto_activo_id)
-        return Response(UsuarioResumenSerializer(usuarios, many=True).data)
+        usuarios = list(servicios.usuarios_del_conjunto(request.auth.conjunto_activo_id))
+        return Response(UsuarioResumenSerializer(usuarios, many=True, context=con_viviendas(usuarios)).data)
 
     def post(self, request):
         exigir_permiso(request, "usuario.gestionar")
@@ -121,7 +127,7 @@ class DetalleDeUsuarioView(VistaDeConjunto):
         if usuario is None:
             # Sin más detalle: un 404 no confirma si la cuenta existe en otro conjunto (maestro §5.4).
             raise NotFound()
-        return Response(UsuarioResumenSerializer(usuario).data)
+        return Response(UsuarioResumenSerializer(usuario, context=con_viviendas([usuario])).data)
 
 
 class PerfilDeUsuarioView(APIView):
@@ -149,7 +155,7 @@ def usuario_actualizado(request, usuario):
     usuario.persona.asignaciones_en_conjunto = list(
         Asignacion.objects.vigentes().filter(persona=usuario.persona, conjunto_id=request.auth.conjunto_activo_id)
     )
-    return Response(UsuarioResumenSerializer(usuario).data)
+    return Response(UsuarioResumenSerializer(usuario, context=con_viviendas([usuario])).data)
 
 
 class RolesDeUsuarioView(VistaDeConjunto):

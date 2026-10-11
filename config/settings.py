@@ -57,6 +57,8 @@ INSTALLED_APPS = [
     "apps.reglas",
     "apps.reservas",
     "apps.ingresos",
+    "apps.parqueaderos",
+    "apps.pagos",
     "apps.visitantes",
     "apps.documentos",
 ]

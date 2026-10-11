@@ -15,9 +15,11 @@ from apps.conjuntos.models import Conjunto
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
+from apps.reglas.models import Regla
 from apps.reservas import servicios
 from apps.reservas.models import BLOQUEANTES, EstadoSolicitud, Solicitud
 from apps.unidades.models import TipoVinculo, Unidad, VinculoUnidad
+from apps.unidades.servicios import unidades_para_solicitar
 
 RESIDENTES = 10
 MANANA = timezone.localdate() + timedelta(days=1)
@@ -79,6 +81,47 @@ def test_n_residentes_sobre_la_misma_franja_producen_exactamente_un_bloqueo():
     assert sorted(resultados) == ["bloqueo"] + ["ocupada"] * (RESIDENTES - 1)
     with usar_conjunto(torres.id):
         assert Solicitud.objects.filter(area=salon, fecha=MANANA, hora_inicio=OCHO, estado__in=BLOQUEANTES).count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_con_una_reserva_al_dia_tres_envios_a_la_vez_dejan_una_sola_apartada():
+    """Cada residente tiene su propia franja del mismo día, así que el índice de la franja no decide:
+    decide que `enviar` bloquea la fila del área y evalúa un envío después del otro.
+    """
+    torres, salon, personas = residentes_con_area(3)
+    with usar_conjunto(torres.id):
+        Regla.objects.create(area=salon, tipo="UNA_RESERVA_POR_DIA", parametros={}, creada_por=personas[0])
+        en_tramite = [
+            (persona, servicios.tomar_bloqueo(persona, salon, MANANA, time(hora)).id, unidades_para_solicitar(persona).get().id)
+            for persona, hora in zip(personas, (8, 12, 16))
+        ]
+    barrera = threading.Barrier(len(en_tramite))
+    resultados = []
+    candado = threading.Lock()
+
+    def enviar(persona, solicitud_id, unidad_id):
+        try:
+            with usar_conjunto(torres.id):
+                barrera.wait()
+                try:
+                    servicios.enviar(persona, solicitud_id, unidad_id=unidad_id, motivo="Cumpleaños", asistentes=20)
+                    resultado = "apartada"
+                except servicios.IncumpleReglas:
+                    resultado = "rechazada"
+            with candado:
+                resultados.append(resultado)
+        finally:
+            connection.close()
+
+    hilos = [threading.Thread(target=enviar, args=datos) for datos in en_tramite]
+    for hilo in hilos:
+        hilo.start()
+    for hilo in hilos:
+        hilo.join()
+
+    assert sorted(resultados) == ["apartada", "rechazada", "rechazada"]
+    with usar_conjunto(torres.id):
+        assert Solicitud.objects.filter(area=salon, fecha=MANANA, estado=EstadoSolicitud.APARTADA).count() == 1
 
 
 @pytest.mark.django_db

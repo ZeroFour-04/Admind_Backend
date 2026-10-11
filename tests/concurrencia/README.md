@@ -8,6 +8,8 @@ Las pruebas obligatorias del flujo de reserva (§5.1). Es de lo que más se sust
 - Un bloqueo vencido no bloquea
 - Un bloqueo liberado a mano no expira dos veces
 - La apertura de la ventana de anticipación con N residentes en el mismo segundo no duplica reservas
+- `test_aforo_de_ingresos.py`: diez registros sobre el último cupo de una zona dejan uno solo adentro
+- `test_parqueadero_de_visitantes.py`: diez registros sobre el mismo parqueadero de visitantes dejan a una sola visita con el puesto y rechazan a las otras nueve (HU-28)
 
 ## Con qué se conecta
 

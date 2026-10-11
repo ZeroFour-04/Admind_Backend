@@ -13,13 +13,14 @@ El flujo de reserva de zonas comunes. El orden de llegada decide quién puede pe
 - Aprobación con **condiciones del alquiler** obligatorias, congeladas al aprobar y versionadas si cambian
 - Rechazo con categoría obligatoria: `NO_DISPONIBLE`, `CONDICIONES_NO_CUMPLIDAS`, `DOCUMENTACION_INCOMPLETA`, `INCUMPLE_REGLAMENTO`, `OTRO`
 - Bandeja administrativa por zona común para revisar solicitudes enviadas, aceptar o rechazar con motivo auditado
-- Pago **declarado**, no validado: `pago_declarado_por`, `fecha_declaracion` y comprobante
+- Pago **declarado**, no validado (HU-16, construido el 2026-10-10): `Solicitud.pago_declarado_por` y `pago_declarado_en` (van los dos o ninguno, por un `CHECK`) y `ComprobanteDePago`, con el archivo dentro de la base. Vive en `pago.py`: declarar (solo `reserva.declarar_pago`, es decir Administración), retirar la declaración con motivo, subir el residente su comprobante (máximo 3, y no cambia el estado del pago) y decidir quién descarga. Aprobar una reserva no depende del pago
 - **Campana:** suscripción a una franja concreta, que se consume al notificar
 - Fechas de **alta demanda**, con FIFO puro sobre el momento de tomar el bloqueo
 
 ## Con qué se conecta
 
 - `apps/comun/bloqueo/`: el bloqueo y la transacción no se implementan aquí
+- `apps/comun/archivos/`: la validación del comprobante por su firma (PDF, JPG o PNG, hasta 5 MB, con SHA-256); la comparte con el pago de administración
 - `apps/reglas/`: valida la solicitud al enviarla
 - `apps/areas/`: la franja es sobre un área
 - `apps/unidades/`: solo solicita quien tiene vínculo vigente con `reside = true`

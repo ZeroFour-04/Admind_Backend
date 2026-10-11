@@ -56,6 +56,15 @@ class Solicitud(ModeloDeConjunto):
         "personas.Persona", on_delete=models.PROTECT, null=True, blank=True, related_name="decisiones_reserva"
     )
     decidida_en = models.DateTimeField(null=True, blank=True)
+    # El pago lo declara una persona de la administración; el sistema no verifica el dinero (HU-16).
+    pago_declarado_por = models.ForeignKey(
+        "personas.Persona",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="pagos_de_reserva_declarados",
+    )
+    pago_declarado_en = models.DateTimeField(null=True, blank=True)
     creada_en = models.DateTimeField(auto_now_add=True)
     enviada_en = models.DateTimeField(null=True, blank=True)
 
@@ -80,6 +89,12 @@ class Solicitud(ModeloDeConjunto):
                 condition=Q(estado__in=SIN_UNIDAD_PERMITIDA) | Q(unidad__isnull=False),
                 name="solicitud_unidad_desde_apartada",
             ),
+            # Quién declaró y cuándo van juntos: la base no acepta uno sin el otro (HU-16).
+            models.CheckConstraint(
+                condition=Q(pago_declarado_por__isnull=True, pago_declarado_en__isnull=True)
+                | Q(pago_declarado_por__isnull=False, pago_declarado_en__isnull=False),
+                name="solicitud_pago_declarado_completo",
+            ),
         ]
         indexes = [
             models.Index(fields=["conjunto", "area", "fecha"], name="solicitud_por_franja"),
@@ -88,3 +103,26 @@ class Solicitud(ModeloDeConjunto):
 
     def __str__(self):
         return f"{self.area} · {self.fecha} {self.hora_inicio:%H:%M} · {self.get_estado_display()}"
+
+
+class ComprobanteDePago(ModeloDeConjunto):
+    """Un comprobante del pago de una reserva, guardado dentro de la base (HU-16, plan D5 a).
+
+    Lo sube quien declara el pago o el residente dueño de la solicitud. `tipo` es el que dice la firma
+    del archivo, no el que dijo el navegador. Toda consulta de listado usa `defer("contenido")`.
+    """
+
+    solicitud = models.ForeignKey(Solicitud, on_delete=models.PROTECT, related_name="comprobantes")
+    contenido = models.BinaryField()
+    tipo = models.CharField(max_length=20)
+    nombre = models.CharField(max_length=120)
+    peso = models.PositiveIntegerField()  # en bytes
+    huella = models.CharField(max_length=64)  # SHA-256 del contenido
+    subido_por = models.ForeignKey("personas.Persona", on_delete=models.PROTECT, related_name="+")
+    subido_en = models.DateTimeField(auto_now_add=True)
+
+    class Meta(ModeloDeConjunto.Meta):
+        indexes = [models.Index(fields=["conjunto", "solicitud"], name="comprobante_por_solicitud")]
+
+    def __str__(self):
+        return self.nombre

@@ -1,24 +1,30 @@
 """Franjas y solicitudes de reserva del conjunto activo (HU-11). Cada vista valida, exige su permiso y llama al servicio."""
+from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
 from apps.areas.models import Area
 from apps.comun.aislamiento.vistas import VistaDeConjunto
-from apps.permisos.views import exigir_permiso
-from apps.reservas import servicios
+from apps.comun.archivos import comprobantes
+from apps.permisos.views import exigir_permiso, tiene_permiso_en_conjunto
+from apps.reservas import pago, servicios
 from apps.reservas.serializers import (
     ConsultarFranjasSerializer,
     DecisionDeSolicitudSerializer,
+    DeclararPagoSerializer,
     DetalleDeSolicitudSerializer,
     EnviarSolicitudSerializer,
     FranjaSerializer,
+    RetirarPagoSerializer,
     SolicitudSerializer,
     SolicitudParaAdministrarSerializer,
+    SubirComprobanteSerializer,
     TomarBloqueoSerializer,
 )
 
 MENSAJE_NO_EN_TRAMITE = {"detail": "Esta solicitud ya no está en trámite."}
+EXTENSION_POR_TIPO = {"application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg"}
 
 
 def area_del_conjunto(area_id):
@@ -196,3 +202,116 @@ class EnviarSolicitudView(VistaDeConjunto):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(DetalleDeSolicitudSerializer(solicitud).data)
+
+
+def leer_archivo(archivo):
+    """`(nombre, contenido)` del archivo subido, o `(None, None)` si no llegó.
+
+    Se lee un byte más del límite: basta para saber que se pasa, sin cargar un archivo enorme.
+    """
+    if archivo is None:
+        return None, None
+    return archivo.name, archivo.read(comprobantes.TAMANO_MAXIMO_DE_COMPROBANTE + 1)
+
+
+def archivo_invalido(error):
+    return Response({"archivo": [error.mensaje]}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def demasiados_comprobantes():
+    return Response(
+        {"detail": f"Esta solicitud ya tiene {pago.MAXIMO_DE_COMPROBANTES} comprobantes: es el máximo."},
+        status=status.HTTP_409_CONFLICT,
+    )
+
+
+class PagoDeSolicitudView(VistaDeConjunto):
+    def post(self, request, solicitud_id):
+        """Administración declara que recibió el pago, con un comprobante opcional (HU-16). No valida el dinero."""
+        exigir_permiso(request, "reserva.declarar_pago")
+        datos = DeclararPagoSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        nombre, contenido = leer_archivo(datos.validated_data.get("archivo"))
+        try:
+            solicitud = pago.declarar(request.user.persona, solicitud_id, nombre, contenido)
+        except servicios.SolicitudNoEncontrada:
+            raise NotFound()
+        except comprobantes.ArchivoInvalido as error:
+            return archivo_invalido(error)
+        except pago.PagoNoPermitido:
+            return Response(
+                {"detail": "Solo se puede declarar el pago de una solicitud apartada o reservada."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except pago.PagoYaDeclarado:
+            return Response(
+                {"detail": "El pago de esta solicitud ya está declarado."}, status=status.HTTP_409_CONFLICT
+            )
+        except pago.DemasiadosComprobantes:
+            return demasiados_comprobantes()
+        return Response(SolicitudParaAdministrarSerializer(solicitud).data)
+
+
+class RetirarPagoDeSolicitudView(VistaDeConjunto):
+    def post(self, request, solicitud_id):
+        """Administración retira una declaración hecha por error. El motivo es obligatorio y queda auditado."""
+        exigir_permiso(request, "reserva.declarar_pago")
+        datos = RetirarPagoSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        try:
+            solicitud = pago.retirar_declaracion(request.user.persona, solicitud_id, datos.validated_data["motivo"])
+        except servicios.SolicitudNoEncontrada:
+            raise NotFound()
+        except pago.PagoNoDeclarado:
+            return Response(
+                {"detail": "El pago de esta solicitud no está declarado."}, status=status.HTTP_409_CONFLICT
+            )
+        return Response(SolicitudParaAdministrarSerializer(solicitud).data)
+
+
+class ComprobantesDeSolicitudView(VistaDeConjunto):
+    def post(self, request, solicitud_id):
+        """El residente sube un comprobante a una solicitud suya. Subirlo no declara el pago."""
+        exigir_permiso(request, "reserva.solicitar")
+        datos = SubirComprobanteSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        nombre, contenido = leer_archivo(datos.validated_data["archivo"])
+        try:
+            solicitud = pago.subir_comprobante(request.user.persona, solicitud_id, nombre, contenido)
+        except servicios.SolicitudNoEncontrada:
+            raise NotFound()
+        except comprobantes.ArchivoInvalido as error:
+            return archivo_invalido(error)
+        except pago.PagoNoPermitido:
+            return Response(
+                {"detail": "Esta solicitud ya no admite comprobantes."}, status=status.HTTP_409_CONFLICT
+            )
+        except pago.PagoYaDeclarado:
+            return Response(
+                {"detail": "El pago ya está declarado por la administración: no se pueden subir más comprobantes."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except pago.DemasiadosComprobantes:
+            return demasiados_comprobantes()
+        return Response(DetalleDeSolicitudSerializer(solicitud).data, status=status.HTTP_201_CREATED)
+
+
+class ComprobanteDeSolicitudView(VistaDeConjunto):
+    def get(self, request, comprobante_id):
+        """El archivo del comprobante, solo por esta ruta. Quien no puede verlo recibe 404, no 403 (plan P8)."""
+        # `reserva.ver_todas` entra para que Vigilancia reciba 404 y no 403: no se le confirma que existe.
+        exigir_permiso(
+            request, "reserva.solicitar", "reserva.ver_todas", "reserva.aprobar", "reserva.declarar_pago"
+        )
+        puede_gestionar = tiene_permiso_en_conjunto(request, "reserva.declarar_pago") or tiene_permiso_en_conjunto(
+            request, "reserva.aprobar"
+        )
+        comprobante = pago.comprobante_para(request.user.persona, puede_gestionar, comprobante_id)
+        if comprobante is None:
+            raise NotFound()
+        respuesta = HttpResponse(bytes(comprobante.contenido), content_type=comprobante.tipo)
+        # El nombre de la cabecera se fabrica aquí: el que escribió quien subió el archivo no viaja en ella.
+        extension = EXTENSION_POR_TIPO.get(comprobante.tipo, "bin")
+        respuesta["Content-Disposition"] = f'inline; filename="comprobante-{comprobante.huella[:8]}.{extension}"'
+        respuesta["X-Content-Type-Options"] = "nosniff"
+        return respuesta

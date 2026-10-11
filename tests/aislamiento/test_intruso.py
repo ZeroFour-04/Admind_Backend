@@ -22,8 +22,10 @@ from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
 from apps.reglas.models import Regla
-from apps.reservas.models import Solicitud
+from apps.reservas.models import ComprobanteDePago, EstadoSolicitud, Solicitud
 from apps.unidades.models import Agrupacion, TipoVinculo, Unidad, VinculoUnidad
+from apps.pagos.models import Comprobante, PagoDeAdministracion
+from apps.parqueaderos.models import Parqueadero
 from apps.visitantes.models import Visitante
 from tests.aislamiento.models import Area
 
@@ -384,6 +386,70 @@ def enviar_solicitud_en(otro_conjunto):
     return "post", reverse("solicitud-enviar", kwargs={"solicitud_id": solicitud.pk}), intacto
 
 
+def solicitud_apartada_de(otro_conjunto):
+    """Una solicitud apartada del otro conjunto: la que Administración podría declarar como pagada."""
+    solicitud = solicitud_de(otro_conjunto)
+    unidad = unidad_de(otro_conjunto)
+    with usar_conjunto(otro_conjunto.id):
+        Solicitud.objects.filter(pk=solicitud.pk).update(estado=EstadoSolicitud.APARTADA, unidad=unidad)
+    return solicitud
+
+
+def pago_intacto_en(otro_conjunto, solicitud):
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return Solicitud.objects.get(pk=solicitud.pk).pago_declarado_por_id is None
+
+    return intacto
+
+
+def declarar_pago_en(otro_conjunto):
+    solicitud = solicitud_apartada_de(otro_conjunto)
+    url = reverse("solicitud-pago", kwargs={"solicitud_id": solicitud.pk})
+    return "post", url, pago_intacto_en(otro_conjunto, solicitud)
+
+
+def retirar_pago_en(otro_conjunto):
+    solicitud = solicitud_apartada_de(otro_conjunto)
+    declarante = usuario_de(otro_conjunto).persona
+    with usar_conjunto(otro_conjunto.id):
+        Solicitud.objects.filter(pk=solicitud.pk).update(
+            pago_declarado_por=declarante, pago_declarado_en=timezone.now()
+        )
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return Solicitud.objects.get(pk=solicitud.pk).pago_declarado_por_id is not None
+
+    return "post", reverse("solicitud-pago-retirar", kwargs={"solicitud_id": solicitud.pk}), intacto
+
+
+def subir_comprobante_en(otro_conjunto):
+    solicitud = solicitud_apartada_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return not ComprobanteDePago.objects.filter(solicitud=solicitud).exists()
+
+    return "post", reverse("solicitud-comprobantes", kwargs={"solicitud_id": solicitud.pk}), intacto
+
+
+def comprobante_de_otro_conjunto(otro_conjunto):
+    solicitud = solicitud_apartada_de(otro_conjunto)
+    persona = usuario_de(otro_conjunto).persona
+    with usar_conjunto(otro_conjunto.id):
+        comprobante = ComprobanteDePago.objects.create(
+            solicitud=solicitud,
+            contenido=b"%PDF-1.7 ajeno",
+            tipo="application/pdf",
+            nombre="ajeno.pdf",
+            peso=14,
+            huella="c" * 64,
+            subido_por=persona,
+        )
+    return reverse("solicitud-comprobante", kwargs={"comprobante_id": comprobante.pk})
+
+
 def ingreso_de(otro_conjunto):
     with usar_conjunto(otro_conjunto.id):
         area = AreaComun.objects.create(
@@ -451,6 +517,96 @@ def listado_de_areas_comunes(otro_conjunto):
     return reverse("areas"), str(area_comun_de(otro_conjunto).pk)
 
 
+def pago_de(otro_conjunto):
+    """Una vivienda del otro conjunto con el pago del mes reportado, con su comprobante."""
+    unidad = unidad_de(otro_conjunto)
+    persona = usuario_de(otro_conjunto).persona
+    with usar_conjunto(otro_conjunto.id):
+        pago = PagoDeAdministracion.objects.create(
+            unidad=unidad, periodo=timezone.localdate().replace(day=1), reportado_por=persona, reportado_en=timezone.now()
+        )
+        comprobante = Comprobante.objects.create(
+            pago=pago,
+            contenido=b"%PDF-1.7 ajeno",
+            tipo="application/pdf",
+            nombre="ajeno.pdf",
+            peso=14,
+            huella="d" * 64,
+            subido_por=persona,
+        )
+    return unidad, pago, comprobante
+
+
+def tabla_de_pagos(otro_conjunto):
+    unidad, _, _ = pago_de(otro_conjunto)
+    return reverse("pagos-administracion"), str(unidad.pk)
+
+
+def pagos_mios(otro_conjunto):
+    unidad, _, _ = pago_de(otro_conjunto)
+    return reverse("pagos-mios"), str(unidad.pk)
+
+
+def comprobante_de_pago_ajeno(otro_conjunto):
+    _, _, comprobante = pago_de(otro_conjunto)
+    return reverse("pago-comprobante", kwargs={"comprobante_id": comprobante.pk})
+
+
+def confirmar_pago_en(otro_conjunto):
+    unidad, pago, _ = pago_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return PagoDeAdministracion.objects.get(pk=pago.pk).confirmado_por_id is None
+
+    periodo = timezone.localdate().strftime("%Y-%m")
+    return "post", reverse("pago-confirmacion", kwargs={"unidad_id": unidad.pk, "periodo": periodo}), intacto
+
+
+def reportar_pago_en(otro_conjunto):
+    unidad, pago, _ = pago_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return Comprobante.objects.filter(pago=pago).count() == 1
+
+    return "post", reverse("pago-reportes"), intacto
+
+
+def parqueadero_de(otro_conjunto):
+    creador = usuario_de(otro_conjunto).persona
+    with usar_conjunto(otro_conjunto.id):
+        return Parqueadero.objects.create(
+            codigo=f"V-{Parqueadero.objects.count() + 1:02d}", tipo="visitantes", creado_por=creador
+        )
+
+
+def listado_de_parqueaderos(otro_conjunto):
+    return reverse("parqueaderos"), str(parqueadero_de(otro_conjunto).pk)
+
+
+def desactivar_parqueadero_en(otro_conjunto):
+    parqueadero = parqueadero_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return Parqueadero.objects.get(pk=parqueadero.pk).activo
+
+    return "post", reverse("parqueadero-desactivar", kwargs={"parqueadero_id": parqueadero.pk}), intacto
+
+
+def salida_de_visitante_en(otro_conjunto):
+    unidad = unidad_de(otro_conjunto)
+    with usar_conjunto(otro_conjunto.id):
+        visitante = Visitante.objects.create(nombre="María Pérez", cedula="123456789", unidad=unidad)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return Visitante.objects.get(pk=visitante.pk).hora_salida is None
+
+    return "post", reverse("visitante-salida", kwargs={"visitante_id": visitante.pk}), intacto
+
+
 def desactivar_area_comun(otro_conjunto):
     area = area_comun_de(otro_conjunto)
 
@@ -472,6 +628,8 @@ DETALLES = {
     "franjas": franjas_de_area_ajena,
     "solicitud-detalle": detalle_de_solicitud,
     "reglamento-archivo": archivo_del_reglamento,
+    "solicitud-comprobante": comprobante_de_otro_conjunto,
+    "pago-comprobante": comprobante_de_pago_ajeno,
 }
 LISTADOS = {
     "pruebas-areas": listado_de_areas,
@@ -487,6 +645,9 @@ LISTADOS = {
     "reglas-catalogo": catalogo_de_reglas,
     "solicitudes": listado_de_solicitudes,
     "visitantes": listado_de_visitantes,
+    "parqueaderos": listado_de_parqueaderos,
+    "pagos-administracion": tabla_de_pagos,
+    "pagos-mios": pagos_mios,
     "ingresos": listado_de_ingresos,
     "ingresos-zonas": zonas_con_ingreso,
     "reglamento": datos_del_reglamento,
@@ -508,9 +669,16 @@ ACCIONES = {
     "regla-retirar": retirar_regla_en,
     "solicitud-liberar": liberar_solicitud_en,
     "solicitud-enviar": enviar_solicitud_en,
+    "solicitud-pago": declarar_pago_en,
+    "solicitud-pago-retirar": retirar_pago_en,
+    "solicitud-comprobantes": subir_comprobante_en,
     "reglamento": subir_reglamento_en,
     "ingreso-residentes-buscar": buscar_residente_en,
     "ingreso-salida": salida_en,
+    "parqueadero-desactivar": desactivar_parqueadero_en,
+    "pago-confirmacion": confirmar_pago_en,
+    "pago-reportes": reportar_pago_en,
+    "visitante-salida": salida_de_visitante_en,
 }
 RUTAS_SIN_CONJUNTO = {
     "iniciar-sesion",

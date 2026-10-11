@@ -7,8 +7,10 @@ La minuta de portería: entrada y salida de visitantes, y la ocupación temporal
 ## Qué va aquí
 
 - Registro de visita con finalidad declarada, autorización y plazo de retención (Ley 1581)
-- Ocupación temporal de un parqueadero de visitantes: pertenece a la visita y termina al registrar la salida
-- Liberación manual por Vigilancia y listado de ocupaciones abiertas de más de N horas (§11.6)
+- **Capa de servicio (2026-10-10, HU-28):** `servicios.py` guarda las reglas que antes estaban en la vista: solo Vigilancia registra (`exigir_vigilancia`, y lo mismo para la salida), el apartamento debe existir en el conjunto, y registro y salida dejan fila en la auditoría (`visitante.registrar`, `visitante.salida`)
+- **Salida:** `Visitante.hora_salida` y `salida_registrada_por`; `POST /visitantes/<id>/salida/` (409 si ya salió). Quien solo registra ve las visitas de hoy **y** las que siguen adentro de días anteriores
+- Ocupación temporal de un parqueadero de visitantes: pertenece a la visita (`Visitante.parqueadero`) y termina al registrar la salida. Un índice único parcial `(conjunto, parqueadero)` donde `hora_salida IS NULL` lo decide, tomado con `bloqueo.tomar`; si otra visita lo ocupó antes, 409 y la visita no queda registrada
+- Pendiente: liberación manual por Vigilancia sin salida y listado de ocupaciones abiertas de más de N horas (§11.6)
 
 ## Lo que no va
 

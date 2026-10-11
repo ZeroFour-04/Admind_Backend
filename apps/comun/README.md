@@ -6,6 +6,7 @@ Infraestructura del Núcleo. No es un módulo del producto y no tiene pantalla: 
 
 - `aislamiento/`: conjunto activo y filtro obligatorio por `conjunto_id`
 - `bloqueo/`: bloqueo exclusivo con transacción, compartido por reservas, citas y parqueadero de visitantes
+- `archivos/`: la validación de un comprobante de pago por su firma (los primeros bytes, no la extensión ni el `Content-Type`), su peso máximo y su huella SHA-256. Funciones puras, sin HTTP ni apps de negocio; las usa `reservas` y las usará el pago de administración
 - `modelos_base/`: campos y comportamiento que repite toda entidad (UUID, conjunto, anulación, baja lógica)
 
 ## Con qué se conecta

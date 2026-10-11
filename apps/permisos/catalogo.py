@@ -30,6 +30,7 @@ PERMISOS = PERMISOS_DE_PLATAFORMA | frozenset({
     "regla.ver", "regla.configurar",
     "area.ver", "area.gestionar",
     "reserva.solicitar", "reserva.ver_todas", "reserva.aprobar", "reserva.rechazar", "reserva.cancelar_ajena",
+    "reserva.declarar_pago",
     "usuario.gestionar", "rol.asignar", "vinculo.gestionar",
     "visitante.registrar", "visitante.ver_historico",
     "ingreso.registrar", "ingreso.ver_historico",
@@ -40,7 +41,8 @@ PERMISOS = PERMISOS_DE_PLATAFORMA | frozenset({
     "cita.agendar_propia", "cita.gestionar_horario", "cita.ver_todas",
     "documento.subir", "documento.ver", "documento.descargar",
     "importacion.ejecutar", "respaldo.generar", "auditoria.ver",
-    "parqueadero.ver", "parqueadero.asignar",
+    "parqueadero.ver", "parqueadero.asignar", "parqueadero.gestionar",
+    "pago.ver", "pago.confirmar", "pago.reportar",
 })
 
 # Exigen segundo factor (HU-02).
@@ -50,6 +52,8 @@ PERMISOS_SENSIBLES = PERMISOS_DE_PLATAFORMA | frozenset({
     "persona.buscar", "persona.vincular",
     "infraccion.registrar", "infraccion.ver", "infraccion.cerrar",
     "solicitud.bandeja_ver",
+    # Muestra quién vive en cada vivienda y sus comprobantes de pago (HU-35, D5 a).
+    "pago.ver",
 })
 
 PERMISOS_POR_ROL = {
@@ -61,6 +65,7 @@ PERMISOS_POR_ROL = {
         "regla.ver", "regla.configurar",
         "area.ver", "area.gestionar",
         "reserva.ver_todas", "reserva.aprobar", "reserva.rechazar", "reserva.cancelar_ajena",
+        "reserva.declarar_pago",
         "usuario.gestionar", "rol.asignar", "vinculo.gestionar",
         "visitante.ver_historico", "ingreso.ver_historico",
         "caso.ver_todos", "caso.responder",
@@ -70,17 +75,20 @@ PERMISOS_POR_ROL = {
         "cita.gestionar_horario", "cita.ver_todas",
         "documento.subir", "documento.ver", "documento.descargar",
         "importacion.ejecutar", "respaldo.generar", "auditoria.ver",
-        "parqueadero.ver", "parqueadero.asignar",
+        "parqueadero.ver", "parqueadero.asignar", "parqueadero.gestionar",
+        "pago.ver", "pago.confirmar",
     }),
     Rol.SECRETARIA: frozenset({
         "area.ver", "reserva.ver_todas", "reserva.aprobar", "reserva.rechazar",
         "solicitud.bandeja_ver", "solicitud.priorizar", "solicitud.rechazar_formal",
         "anuncio.publicar", "anuncio.dirigir",
+        "pago.ver",
     }),
     Rol.VIGILANCIA: frozenset({
         "visitante.registrar", "reserva.ver_todas", "ingreso.registrar",
     }),
     Rol.RESIDENTE: frozenset({
         "area.ver", "reserva.solicitar", "caso.crear", "cita.agendar_propia", "documento.ver",
+        "pago.reportar",
     }),
 }

@@ -87,14 +87,17 @@ def hay_reglas(conjunto):
         return Regla.objects.exists()
 
 
-DE_UN_AREA = {"DIAS_QUE_NO_ABRE", "CUPO_POR_UNIDAD"}
+DE_UN_AREA = {"DIAS_QUE_NO_ABRE", "CUPO_POR_UNIDAD", "UNA_RESERVA_POR_DIA", "SIN_FRANJAS_SEGUIDAS"}
 NAVIDAD = {"desde": "2026-12-25", "hasta": "2026-12-25", "motivo": "Navidad"}
 PARAMETROS_VALIDOS = {
     "ANTICIPACION_MINIMA": ({"horas": 24}, "Se solicita con al menos 24 horas de anticipación"),
     "ANTICIPACION_MAXIMA": ({"dias": 30}, "Se solicita con máximo 30 días de anticipación"),
     "REQUIERE_PAZ_Y_SALVO": ({}, "Requiere estar a paz y salvo con la administración"),
+    "DIA_LIMITE_DE_PAGO": ({"dia": 10}, "La administración se paga hasta el día 10 de cada mes"),
     "CUPO_POR_UNIDAD": ({"reservas": 2, "dias": 30}, "Máximo 2 reservas por apartamento cada 30 días"),
     "ACOMPANANTES": ({"maximo": 2}, "Máximo 2 acompañantes por vivienda a la vez"),
+    "UNA_RESERVA_POR_DIA": ({}, "Solo una reserva al día"),
+    "SIN_FRANJAS_SEGUIDAS": ({}, "Un apartamento no reserva franjas seguidas"),
     "DIAS_QUE_NO_ABRE": (
         {"renglones": [NAVIDAD, {"dia_semana": 0, "motivo": " Limpieza "}]},
         "No abre los lunes (Limpieza); el 25 de diciembre de 2026 (Navidad)",
@@ -189,7 +192,11 @@ def test_cada_tipo_del_catalogo_se_crea_y_se_describe_en_palabras(admin, salon, 
         ("ANTICIPACION_MINIMA", {"horas": 24, "minutos": 2}, "minutos"),
         ("ANTICIPACION_MINIMA", {"horas": "24"}, "horas"),
         ("ANTICIPACION_MAXIMA", {"dias": 0}, "dias"),
+        ("DIA_LIMITE_DE_PAGO", {"dia": 29}, "dia"),
+        ("DIA_LIMITE_DE_PAGO", {"dia": 0}, "dia"),
+        ("DIA_LIMITE_DE_PAGO", {}, "dia"),
         ("CUPO_POR_UNIDAD", {"reservas": 2}, "dias"),
+        ("UNA_RESERVA_POR_DIA", {"maximo": 1}, "maximo"),
         ("DIAS_QUE_NO_ABRE", {"renglones": []}, "renglones"),
         ("DIAS_QUE_NO_ABRE", {"renglones": [{"dia_semana": 0}]}, "renglones"),
         ("DIAS_QUE_NO_ABRE", {"renglones": [{"dia_semana": 7, "motivo": "Limpieza"}]}, "renglones"),
@@ -284,20 +291,29 @@ def test_el_catalogo_trae_cada_tipo_con_su_nivel_y_su_descripcion(admin):
         ("ANTICIPACION_MINIMA", "alfa"),
         ("ANTICIPACION_MAXIMA", "alfa"),
         ("REQUIERE_PAZ_Y_SALVO", "alfa"),
+        ("DIA_LIMITE_DE_PAGO", "alfa"),
         ("ACOMPANANTES", "alfa"),
         ("DIAS_QUE_NO_ABRE", "beta"),
         ("CUPO_POR_UNIDAD", "beta"),
+        ("UNA_RESERVA_POR_DIA", "beta"),
+        ("SIN_FRANJAS_SEGUIDAS", "beta"),
     ]
     assert all(entrada["nombre"] and entrada["descripcion"] for entrada in catalogo)
-    assert catalogo[2]["nota"] == "Todavía no restringe: falta el módulo de pagos."
-    assert catalogo[5]["nombre"] == "Límite de reservas por apartamento" and catalogo[5]["nota"] == ""
+    assert catalogo[2]["nota"] == "Solo restringe si también defines el día límite de pago."
+    assert "Aplícala solo si el reglamento del conjunto lo permite." in catalogo[2]["descripcion"]
+    assert catalogo[3]["nombre"] == "Día límite de pago" and catalogo[3]["nota"] == ""
+    assert catalogo[6]["nombre"] == "Límite de reservas por apartamento" and catalogo[6]["nota"] == ""
     assert {entrada["tipo"]: entrada["modos"] for entrada in catalogo} == {
         "ANTICIPACION_MINIMA": ["reserva"],
         "ANTICIPACION_MAXIMA": ["reserva"],
         "REQUIERE_PAZ_Y_SALVO": ["reserva", "ingreso"],
+        # Ningún evaluador la evalúa: la lee `pagos` para saber desde cuándo hay mora.
+        "DIA_LIMITE_DE_PAGO": [],
         "ACOMPANANTES": ["ingreso"],
         "DIAS_QUE_NO_ABRE": ["reserva", "ingreso"],
         "CUPO_POR_UNIDAD": ["reserva"],
+        "UNA_RESERVA_POR_DIA": ["reserva"],
+        "SIN_FRANJAS_SEGUIDAS": ["reserva"],
     }
 
 
@@ -417,6 +433,53 @@ def test_el_cupo_por_unidad_cuenta_las_apartadas_de_la_ventana(torres, solicitud
 
     assert motivo == "Este apartamento ya tiene 1 reservas de esta área en 30 días; el máximo es 1."
     assert fuera_de_la_ventana == ""
+
+
+def apartada(solicitud, persona, inicio, fin, **cambios):
+    """Otra solicitud ya apartada el mismo día y en la misma área; por defecto, del mismo apartamento."""
+    datos = {
+        "area": solicitud.area, "unidad": solicitud.unidad, "persona": persona, "fecha": solicitud.fecha,
+        "hora_inicio": time(inicio), "hora_fin": time(fin), "estado": "APARTADA", "bloqueo_vence_en": timezone.now(),
+        **cambios,
+    }
+    return Solicitud.objects.create(**datos)
+
+
+def test_una_reserva_al_dia_cuenta_las_de_cualquier_apartamento(torres, solicitud, laura):
+    evaluar_tipo = EVALUADOR_POR_TIPO["UNA_RESERVA_POR_DIA"]
+    with usar_conjunto(torres.id):
+        vecino = Unidad.objects.create(nombre="Torre 1 – 102")
+        apartada(solicitud, laura, 16, 20, unidad=vecino, fecha=EN_DIEZ_DIAS + timedelta(days=1))
+        otro_dia = evaluar_tipo(solicitud, {})
+        apartada(solicitud, laura, 16, 20, unidad=vecino, estado="RECHAZADA")
+        rechazada = evaluar_tipo(solicitud, {})
+        apartada(solicitud, laura, 12, 16, unidad=vecino)
+
+        motivo = evaluar_tipo(solicitud, {})
+
+    assert (otro_dia, rechazada) == ("", "")
+    assert motivo == "Esta área admite una sola reserva al día y ese día ya tiene una."
+
+
+def test_sin_franjas_seguidas_mira_la_anterior_y_la_siguiente_del_mismo_apartamento(torres, solicitud, laura):
+    """El 101 ya tiene la franja de 12:00 a 16:00: no toma la de antes ni la de después. El 102 sí."""
+    evaluar_tipo = EVALUADOR_POR_TIPO["SIN_FRANJAS_SEGUIDAS"]
+    motivo = (
+        "Este apartamento ya tiene la franja de 12:00 a 16:00 de ese día: en esta área no se reservan franjas seguidas."
+    )
+    with usar_conjunto(torres.id):
+        apartada(solicitud, laura, 12, 16)
+        la_de_antes = evaluar_tipo(solicitud, {})
+        solicitud.hora_inicio, solicitud.hora_fin = time(16), time(20)
+        la_de_despues = evaluar_tipo(solicitud, {})
+        solicitud.hora_inicio, solicitud.hora_fin = time(20), time(22)
+        separada = evaluar_tipo(solicitud, {})
+        solicitud.hora_inicio, solicitud.hora_fin = time(8), time(12)
+        solicitud.unidad = Unidad.objects.create(nombre="Torre 1 – 102")
+        de_otro_apartamento = evaluar_tipo(solicitud, {})
+
+    assert (la_de_antes, la_de_despues) == (motivo, motivo)
+    assert (separada, de_otro_apartamento) == ("", "")
 
 
 def test_paz_y_salvo_restringe_a_la_unidad_en_mora(monkeypatch, torres, solicitud):

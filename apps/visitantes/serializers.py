@@ -15,6 +15,8 @@ class RegistrarVisitanteSerializer(serializers.Serializer):
         default="",
     )
     apartamento_visitado = serializers.UUIDField()
+    # El puesto de visitantes que ocupa mientras no tenga salida. Si existe y está libre lo decide el servicio.
+    parqueadero = serializers.UUIDField(required=False, allow_null=True, default=None)
 
     def validate(self, datos):
         ingresa_con_vehiculo = datos["ingresa_con_vehiculo"]
@@ -29,11 +31,20 @@ class RegistrarVisitanteSerializer(serializers.Serializer):
         else:
             datos["placa_vehiculo"] = ""
             datos["tipo_vehiculo"] = ""
+            if datos["parqueadero"] is not None:
+                raise serializers.ValidationError(
+                    {"parqueadero": ["Solo una visita con vehículo puede ocupar un parqueadero."]}
+                )
         return datos
 
 
 class VisitanteSerializer(serializers.ModelSerializer):
     apartamento_visitado = serializers.CharField(source="unidad.nombre", read_only=True)
+    # El código del puesto, o `None` si no ocupó ninguno.
+    parqueadero = serializers.SerializerMethodField()
+
+    def get_parqueadero(self, visitante):
+        return visitante.parqueadero.codigo if visitante.parqueadero_id else None
 
     class Meta:
         model = Visitante
@@ -44,5 +55,7 @@ class VisitanteSerializer(serializers.ModelSerializer):
             "placa_vehiculo",
             "tipo_vehiculo",
             "hora_entrada",
+            "hora_salida",
             "apartamento_visitado",
+            "parqueadero",
         )

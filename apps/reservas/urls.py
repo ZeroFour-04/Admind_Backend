@@ -1,12 +1,16 @@
 from django.urls import path
 
 from apps.reservas.views import (
-    DetalleDeSolicitudView,
     BandejaDeSolicitudesView,
+    ComprobanteDeSolicitudView,
+    ComprobantesDeSolicitudView,
     DecidirSolicitudView,
+    DetalleDeSolicitudView,
     EnviarSolicitudView,
     FranjasView,
     LiberarSolicitudView,
+    PagoDeSolicitudView,
+    RetirarPagoDeSolicitudView,
     SolicitudesDeAreaView,
     SolicitudesView,
 )
@@ -20,4 +24,16 @@ urlpatterns = [
     path("solicitudes/<uuid:solicitud_id>/", DetalleDeSolicitudView.as_view(), name="solicitud-detalle"),
     path("solicitudes/<uuid:solicitud_id>/liberar/", LiberarSolicitudView.as_view(), name="solicitud-liberar"),
     path("solicitudes/<uuid:solicitud_id>/enviar/", EnviarSolicitudView.as_view(), name="solicitud-enviar"),
+    path("solicitudes/<uuid:solicitud_id>/pago/", PagoDeSolicitudView.as_view(), name="solicitud-pago"),
+    path(
+        "solicitudes/<uuid:solicitud_id>/pago/retirar/",
+        RetirarPagoDeSolicitudView.as_view(),
+        name="solicitud-pago-retirar",
+    ),
+    path(
+        "solicitudes/<uuid:solicitud_id>/comprobantes/",
+        ComprobantesDeSolicitudView.as_view(),
+        name="solicitud-comprobantes",
+    ),
+    path("comprobantes/<uuid:comprobante_id>/", ComprobanteDeSolicitudView.as_view(), name="solicitud-comprobante"),
 ]

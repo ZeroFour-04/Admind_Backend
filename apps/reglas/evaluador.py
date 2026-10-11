@@ -9,6 +9,7 @@ una regla no cambia cuando entra la versión 2, y la copia de la versión queda 
 """
 from datetime import datetime, timedelta
 
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.reglas import mora, sistema
@@ -71,6 +72,35 @@ def requiere_paz_y_salvo(solicitud, p):
     return "El apartamento no está a paz y salvo con la administración."
 
 
+def una_reserva_por_dia(solicitud, p):
+    """El área ya tiene ese día una reserva apartada o en firme, de cualquier apartamento."""
+    ocupado = Solicitud.objects.filter(
+        area_id=solicitud.area_id,
+        fecha=solicitud.fecha,
+        estado__in=[EstadoSolicitud.APARTADA, EstadoSolicitud.RESERVADA],
+    ).exclude(pk=solicitud.pk).exists()
+    if not ocupado:
+        return ""
+    return "Esta área admite una sola reserva al día y ese día ya tiene una."
+
+
+def sin_franjas_seguidas(solicitud, p):
+    """El apartamento ya tiene, ese día y en esa área, la franja que termina o empieza donde esta empieza o termina."""
+    seguida = Solicitud.objects.filter(
+        Q(hora_fin=solicitud.hora_inicio) | Q(hora_inicio=solicitud.hora_fin),
+        unidad_id=solicitud.unidad_id,
+        area_id=solicitud.area_id,
+        fecha=solicitud.fecha,
+        estado__in=[EstadoSolicitud.APARTADA, EstadoSolicitud.RESERVADA],
+    ).exclude(pk=solicitud.pk).first()
+    if seguida is None:
+        return ""
+    return (
+        f"Este apartamento ya tiene la franja de {seguida.hora_inicio:%H:%M} a {seguida.hora_fin:%H:%M} de ese día: "
+        "en esta área no se reservan franjas seguidas."
+    )
+
+
 # Un evaluador por tipo vigente. Cada uno devuelve el motivo si no cumple, o "" si cumple.
 EVALUADOR_POR_TIPO = {
     TipoDeRegla.ANTICIPACION_MINIMA: anticipacion_minima,
@@ -78,6 +108,8 @@ EVALUADOR_POR_TIPO = {
     TipoDeRegla.REQUIERE_PAZ_Y_SALVO: requiere_paz_y_salvo,
     TipoDeRegla.DIAS_QUE_NO_ABRE: dias_que_no_abre,
     TipoDeRegla.CUPO_POR_UNIDAD: cupo_por_unidad,
+    TipoDeRegla.UNA_RESERVA_POR_DIA: una_reserva_por_dia,
+    TipoDeRegla.SIN_FRANJAS_SEGUIDAS: sin_franjas_seguidas,
 }
 
 

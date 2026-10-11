@@ -8,6 +8,7 @@ Se llama `tests` y no `pruebas` para no confundirla con la rama `pruebas`.
 
 - `aislamiento/`: la prueba del intruso
 - `esquema/`: tablas globales y auditoría de solo inserción
+- `archivos/`: la validación de comprobantes por su firma (funciones puras, sin base de datos)
 - `concurrencia/`: bloqueos simultáneos
 
 Herramientas: `pytest`, `pytest-django` y `factory-boy` (§7.1).

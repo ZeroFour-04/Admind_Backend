@@ -2,10 +2,14 @@
 
 La concurrencia (N residentes sobre la misma franja) va en `tests/concurrencia/test_bloqueo_de_franjas.py`.
 """
+import hashlib
 import uuid
 from datetime import datetime, time, timedelta
 
 import pytest
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import IntegrityError, connection, transaction
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.formats import date_format
 from rest_framework.test import APIClient
@@ -21,7 +25,7 @@ from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
 from apps.reglas import mora
 from apps.reglas.models import Regla
-from apps.reservas.models import Solicitud
+from apps.reservas.models import ComprobanteDePago, Solicitud
 from apps.reservas.servicios import avisos
 from apps.unidades.models import TipoVinculo, Unidad, VinculoUnidad
 
@@ -503,6 +507,48 @@ def test_una_unidad_en_mora_no_pide_un_area_con_paz_y_salvo_exigido(
     assert rechazada.json()["motivos"] == ["El apartamento no está a paz y salvo con la administración."]
 
 
+def test_con_una_reserva_al_dia_la_segunda_del_dia_se_rechaza_y_las_franjas_dejan_de_ofrecerse(
+    pedro, lucia, torres, salon, apartamentos, administracion
+):
+    regla(torres, salon, "UNA_RESERVA_POR_DIA", {}, administracion[0])
+    # Lucía alcanza a tomar otra franja del mismo día antes de que Pedro envíe la suya.
+    de_lucia = tomar(lucia, salon, "16:00").json()
+    assert enviar(pedro, tomar(pedro, salon, "08:00").json()["id"], apartamentos[0]).status_code == 200
+
+    rechazada = enviar(lucia, de_lucia["id"], apartamentos[1])
+
+    assert rechazada.status_code == 400
+    assert rechazada.json()["motivos"] == ["Esta área admite una sola reserva al día y ese día ya tiene una."]
+    assert franjas(lucia, salon) == {"08:00": "apartada", "12:00": "no_disponible", "16:00": "no_disponible"}
+    assert franjas(lucia, salon, MANANA + timedelta(days=1))["08:00"] == "libre"
+
+
+def test_con_una_reserva_al_dia_una_franja_en_tramite_no_cierra_el_dia(pedro, lucia, torres, salon, administracion):
+    """Un bloqueo de 3 minutos puede vencer: solo una apartada o reservada toma el día."""
+    regla(torres, salon, "UNA_RESERVA_POR_DIA", {}, administracion[0])
+
+    tomar(pedro, salon, "08:00")
+
+    assert franjas(lucia, salon) == {"08:00": "en_solicitud", "12:00": "libre", "16:00": "libre"}
+
+
+def test_sin_franjas_seguidas_un_apartamento_no_encadena_dos_franjas_del_mismo_dia(
+    pedro, lucia, torres, salon, apartamentos, administracion
+):
+    regla(torres, salon, "SIN_FRANJAS_SEGUIDAS", {}, administracion[0])
+    assert enviar(pedro, tomar(pedro, salon, "08:00").json()["id"], apartamentos[0]).status_code == 200
+
+    seguida = enviar(pedro, tomar(pedro, salon, "12:00").json()["id"], apartamentos[0])
+    separada = enviar(pedro, tomar(pedro, salon, "16:00").json()["id"], apartamentos[0])
+    de_otro_apartamento = enviar(lucia, tomar(lucia, salon, "12:00").json()["id"], apartamentos[1])
+
+    assert seguida.status_code == 400
+    assert seguida.json()["motivos"] == [
+        "Este apartamento ya tiene la franja de 08:00 a 12:00 de ese día: en esta área no se reservan franjas seguidas."
+    ]
+    assert (separada.status_code, de_otro_apartamento.status_code) == (200, 200)
+
+
 def test_queda_registrado_que_reglas_se_evaluaron_y_con_que_resultado(
     pedro, torres, salon, apartamentos, administracion
 ):
@@ -571,3 +617,332 @@ def test_un_area_con_ingreso_no_tiene_franjas_ni_se_reserva(torres, pedro):
     assert respuesta.json()["detail"] == "Esta área no se reserva: el ingreso se registra en portería."
     with usar_conjunto(torres.id):
         assert not Solicitud.objects.exists()
+
+
+# Pago declarado y comprobantes (HU-16)
+
+PDF = b"%PDF-1.7\n1 0 obj\n<<>>\nendobj\n"
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+
+
+def subir(nombre, contenido):
+    return SimpleUploadedFile(nombre, contenido, content_type="application/octet-stream")
+
+
+def declarar_pago(cliente, solicitud_id, archivo=None):
+    datos = {"archivo": archivo} if archivo is not None else {}
+    return cliente.post(f"/reservas/solicitudes/{solicitud_id}/pago/", datos, format="multipart")
+
+
+def retirar_pago(cliente, solicitud_id, **datos):
+    return cliente.post(f"/reservas/solicitudes/{solicitud_id}/pago/retirar/", datos, format="json")
+
+
+def subir_comprobante(cliente, solicitud_id, archivo):
+    return cliente.post(
+        f"/reservas/solicitudes/{solicitud_id}/comprobantes/", {"archivo": archivo}, format="multipart"
+    )
+
+
+def decidir(cliente, solicitud_id, decision):
+    return cliente.post(
+        f"/reservas/solicitudes/{solicitud_id}/decision/",
+        {"decision": decision, "motivo": "Revisada."},
+        format="json",
+    )
+
+
+@pytest.fixture
+def apartada(pedro, salon, apartamentos, administracion):
+    """La solicitud de Pedro, enviada y apartada. `administracion` trae a Andrés, Sofía y Carlos (Secretaría)."""
+    return enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
+
+
+@pytest.fixture
+def andres(administracion):
+    return cliente_para("admin1@torres.com")
+
+
+@pytest.fixture
+def carlos(administracion):
+    return cliente_para("secretaria@torres.com")
+
+
+@pytest.fixture
+def victor(torres):
+    crear_usuario("vigilante@torres.com", "Víctor", Rol.VIGILANCIA, torres)
+    return cliente_para("vigilante@torres.com")
+
+
+def test_administracion_declara_el_pago_y_queda_quien_lo_declaro_y_cuando(andres, torres, apartada):
+    antes = timezone.now()
+
+    respuesta = declarar_pago(andres, apartada["id"])
+
+    assert respuesta.status_code == 200
+    pago = respuesta.json()["pago"]
+    assert pago["declarado"] is True and pago["declarado_por"] == "Andrés Gómez" and pago["comprobantes"] == []
+    guardada = solicitud(torres, apartada["id"])
+    assert guardada.estado == "APARTADA"
+    assert guardada.pago_declarado_por.nombres == "Andrés"
+    assert antes <= guardada.pago_declarado_en <= timezone.now()
+    with usar_conjunto(torres.id):
+        registro = Registro.objects.get(accion="reserva.declarar_pago", entidad_id=apartada["id"])
+    assert registro.actor.nombres == "Andrés"
+    assert registro.antes == {"pago_declarado": False}
+    assert registro.despues["declarado_por"] == str(guardada.pago_declarado_por_id)
+
+
+def test_tambien_se_declara_el_pago_de_una_reserva_ya_aprobada(andres, carlos, torres, apartada):
+    assert decidir(carlos, apartada["id"], "RESERVADA").status_code == 200
+
+    respuesta = declarar_pago(andres, apartada["id"])
+
+    assert respuesta.status_code == 200
+    assert solicitud(torres, apartada["id"]).estado == "RESERVADA"
+    assert respuesta.json()["pago"]["declarado"] is True
+
+
+def test_aprobar_no_depende_del_pago_y_aprobar_no_borra_la_declaracion(andres, carlos, torres, apartada):
+    declarar_pago(andres, apartada["id"])
+
+    decision = decidir(carlos, apartada["id"], "RESERVADA")
+
+    assert decision.status_code == 200
+    assert decision.json()["pago"]["declarado"] is True
+
+
+def test_el_residente_no_puede_declarar_su_propio_pago(pedro, torres, apartada):
+    respuesta = declarar_pago(pedro, apartada["id"])
+
+    assert respuesta.status_code == 403
+    assert solicitud(torres, apartada["id"]).pago_declarado_por_id is None
+    assert retirar_pago(pedro, apartada["id"], motivo="Error.").status_code == 403
+
+
+def test_secretaria_ve_el_pago_pero_no_lo_declara(carlos, torres, salon, apartada):
+    respuesta = declarar_pago(carlos, apartada["id"])
+    listado = carlos.get(f"/reservas/areas/{salon.id}/solicitudes/")
+
+    assert respuesta.status_code == 403
+    assert solicitud(torres, apartada["id"]).pago_declarado_por_id is None
+    assert listado.status_code == 200
+    assert listado.json()[0]["pago"]["declarado"] is False
+
+
+def test_solo_se_declara_sobre_una_solicitud_apartada_o_reservada(andres, carlos, pedro, lucia, salon, apartamentos, apartada):
+    en_tramite = tomar(lucia, salon, "12:00").json()
+    rechazada = enviar(pedro, tomar(pedro, salon, "16:00").json()["id"], apartamentos[0]).json()
+    assert decidir(carlos, rechazada["id"], "RECHAZADA").status_code == 200
+
+    sobre_tramite = declarar_pago(andres, en_tramite["id"])
+    sobre_rechazada = declarar_pago(andres, rechazada["id"])
+    declarada = declarar_pago(andres, apartada["id"])
+    otra_vez = declarar_pago(andres, apartada["id"])
+
+    assert sobre_tramite.status_code == 409
+    assert sobre_tramite.json()["detail"] == "Solo se puede declarar el pago de una solicitud apartada o reservada."
+    assert sobre_rechazada.status_code == 409
+    assert declarada.status_code == 200
+    assert otra_vez.status_code == 409
+    assert otra_vez.json()["detail"] == "El pago de esta solicitud ya está declarado."
+    assert declarar_pago(andres, uuid.uuid4()).status_code == 404
+
+
+def test_una_solicitud_con_pago_declarado_que_se_rechaza_conserva_la_declaracion(andres, carlos, torres, apartada):
+    declarar_pago(andres, apartada["id"])
+
+    rechazo = decidir(carlos, apartada["id"], "RECHAZADA")
+
+    assert rechazo.status_code == 200
+    guardada = solicitud(torres, apartada["id"])
+    assert (guardada.estado, guardada.pago_declarado_por.nombres) == ("RECHAZADA", "Andrés")
+    assert rechazo.json()["pago"]["declarado"] is True
+
+
+def test_la_base_rechaza_una_fecha_de_declaracion_sin_quien_declaro(torres, apartada):
+    with usar_conjunto(torres.id), pytest.raises(IntegrityError), transaction.atomic():
+        Solicitud.objects.filter(pk=apartada["id"]).update(pago_declarado_en=timezone.now())
+
+
+def test_el_residente_ve_que_esta_declarado_y_cuando_pero_no_quien(andres, pedro, apartada):
+    assert pedro.get(f"/reservas/solicitudes/{apartada['id']}/").json()["pago"] == {
+        "declarado": False,
+        "declarado_en": None,
+        "comprobantes": [],
+    }
+    declarar_pago(andres, apartada["id"])
+
+    pago = pedro.get(f"/reservas/solicitudes/{apartada['id']}/").json()["pago"]
+
+    assert pago["declarado"] is True and pago["declarado_en"]
+    assert "declarado_por" not in pago
+    assert "Andrés" not in str(pago)
+    assert "declarado_por" not in pedro.get("/reservas/solicitudes/").json()[0]["pago"]
+
+
+def test_retirar_la_declaracion_pide_motivo_la_limpia_y_queda_en_la_auditoria(andres, carlos, torres, apartada):
+    assert retirar_pago(andres, apartada["id"], motivo="Error de digitación.").status_code == 409
+    declarar_pago(andres, apartada["id"])
+
+    sin_motivo = retirar_pago(andres, apartada["id"], motivo="   ")
+    de_secretaria = retirar_pago(carlos, apartada["id"], motivo="No me toca.")
+    retirada = retirar_pago(andres, apartada["id"], motivo="Era la tarjeta de otra solicitud.")
+
+    assert sin_motivo.status_code == 400 and "motivo" in sin_motivo.json()
+    assert de_secretaria.status_code == 403
+    assert retirada.status_code == 200 and retirada.json()["pago"]["declarado"] is False
+    guardada = solicitud(torres, apartada["id"])
+    assert (guardada.pago_declarado_por_id, guardada.pago_declarado_en) == (None, None)
+    with usar_conjunto(torres.id):
+        registro = Registro.objects.get(accion="reserva.retirar_pago", entidad_id=apartada["id"])
+    assert registro.detalle == {"motivo": "Era la tarjeta de otra solicitud."}
+    assert registro.antes["declarado_por"] and registro.antes["declarado_en"]
+    assert declarar_pago(andres, apartada["id"]).status_code == 200
+
+
+# Comprobantes (HU-16)
+
+
+def test_declarar_con_comprobante_lo_guarda_con_su_tipo_real_y_su_huella(andres, torres, apartada):
+    respuesta = declarar_pago(andres, apartada["id"], subir("pago.pdf", PDF))
+
+    assert respuesta.status_code == 200
+    (visto,) = respuesta.json()["pago"]["comprobantes"]
+    assert visto["nombre"] == "pago.pdf" and visto["subido_por"] == "Andrés Gómez" and visto["del_residente"] is False
+    with usar_conjunto(torres.id):
+        guardado = ComprobanteDePago.objects.get(pk=visto["id"])
+        registro = Registro.objects.get(accion="reserva.declarar_pago", entidad_id=apartada["id"])
+    assert (guardado.tipo, guardado.peso, bytes(guardado.contenido)) == ("application/pdf", len(PDF), PDF)
+    assert guardado.huella == hashlib.sha256(PDF).hexdigest()
+    assert registro.despues["comprobante"]["huella"] == guardado.huella
+
+
+def test_un_png_llamado_pdf_queda_guardado_como_png(andres, torres, apartada):
+    respuesta = declarar_pago(andres, apartada["id"], subir("foto.pdf", PNG))
+
+    assert respuesta.status_code == 200
+    with usar_conjunto(torres.id):
+        assert ComprobanteDePago.objects.get().tipo == "image/png"
+
+
+def test_un_texto_con_extension_pdf_no_se_guarda_y_no_declara_el_pago(andres, torres, apartada):
+    respuesta = declarar_pago(andres, apartada["id"], subir("pago.pdf", b"esto no es un pdf"))
+
+    assert respuesta.status_code == 400
+    assert respuesta.json() == {"archivo": ["El comprobante debe ser un PDF o una imagen JPG o PNG."]}
+    assert solicitud(torres, apartada["id"]).pago_declarado_por_id is None
+    with usar_conjunto(torres.id):
+        assert not ComprobanteDePago.objects.exists()
+
+
+def test_un_archivo_de_mas_de_5_mb_se_rechaza_con_su_mensaje(andres, torres, apartada):
+    pesado = PDF + b"0" * (5 * 1024 * 1024)
+
+    respuesta = declarar_pago(andres, apartada["id"], subir("grande.pdf", pesado))
+
+    assert respuesta.status_code == 400
+    assert respuesta.json() == {"archivo": ["El comprobante no puede pesar más de 5 MB."]}
+    assert solicitud(torres, apartada["id"]).pago_declarado_por_id is None
+
+
+def test_el_residente_sube_su_comprobante_y_eso_no_declara_el_pago(pedro, torres, apartada):
+    respuesta = subir_comprobante(pedro, apartada["id"], subir("transferencia.png", PNG))
+
+    assert respuesta.status_code == 201
+    pago = respuesta.json()["pago"]
+    assert pago["declarado"] is False
+    assert [(c["nombre"], c["del_residente"]) for c in pago["comprobantes"]] == [("transferencia.png", True)]
+    assert solicitud(torres, apartada["id"]).pago_declarado_por_id is None
+    with usar_conjunto(torres.id):
+        assert Registro.objects.filter(accion="reserva.subir_comprobante", entidad_id=apartada["id"]).count() == 1
+
+
+def test_un_residente_no_sube_comprobantes_a_la_solicitud_de_otro(lucia, torres, apartada):
+    respuesta = subir_comprobante(lucia, apartada["id"], subir("pago.pdf", PDF))
+
+    assert respuesta.status_code == 404
+    with usar_conjunto(torres.id):
+        assert not ComprobanteDePago.objects.exists()
+
+
+def test_con_el_pago_declarado_el_residente_ya_no_sube_y_el_cuarto_comprobante_se_rechaza(
+    pedro, andres, torres, apartada
+):
+    for numero in range(3):
+        assert subir_comprobante(pedro, apartada["id"], subir(f"{numero}.pdf", PDF)).status_code == 201
+    cuarto = subir_comprobante(pedro, apartada["id"], subir("3.pdf", PDF))
+    al_declarar = declarar_pago(andres, apartada["id"], subir("4.pdf", PDF))
+
+    assert cuarto.status_code == 409
+    assert cuarto.json()["detail"] == "Esta solicitud ya tiene 3 comprobantes: es el máximo."
+    assert al_declarar.status_code == 409
+    assert solicitud(torres, apartada["id"]).pago_declarado_por_id is None
+
+    sin_archivo = declarar_pago(andres, apartada["id"])
+    despues = subir_comprobante(pedro, apartada["id"], subir("5.pdf", PDF))
+
+    assert sin_archivo.status_code == 200 and len(sin_archivo.json()["pago"]["comprobantes"]) == 3
+    assert despues.status_code == 409
+    assert despues.json()["detail"] == (
+        "El pago ya está declarado por la administración: no se pueden subir más comprobantes."
+    )
+
+
+def test_una_solicitud_que_ya_no_esta_apartada_ni_reservada_no_admite_comprobantes(pedro, andres, carlos, apartada):
+    assert decidir(carlos, apartada["id"], "RECHAZADA").status_code == 200
+
+    respuesta = subir_comprobante(pedro, apartada["id"], subir("pago.pdf", PDF))
+
+    assert respuesta.status_code == 409
+    assert respuesta.json()["detail"] == "Esta solicitud ya no admite comprobantes."
+
+
+def comprobante_de(respuesta):
+    """El id del primer comprobante de la solicitud que devolvió esa respuesta."""
+    return respuesta.json()["pago"]["comprobantes"][0]["id"]
+
+
+def test_el_duenio_administracion_y_secretaria_descargan_y_nadie_mas(pedro, lucia, andres, carlos, victor, apartada):
+    comprobante = comprobante_de(subir_comprobante(pedro, apartada["id"], subir("t.pdf", PDF)))
+    url = f"/reservas/comprobantes/{comprobante}/"
+
+    for quien in (pedro, andres, carlos):
+        respuesta = quien.get(url)
+        assert respuesta.status_code == 200
+        assert respuesta["Content-Type"] == "application/pdf"
+        assert respuesta["X-Content-Type-Options"] == "nosniff"
+        assert respuesta["Content-Disposition"].startswith('inline; filename="comprobante-')
+        assert respuesta.content == PDF
+    assert lucia.get(url).status_code == 404
+    assert victor.get(url).status_code == 404
+    assert pedro.get(f"/reservas/comprobantes/{uuid.uuid4()}/").status_code == 404
+
+
+def test_un_png_se_sirve_con_su_tipo_y_no_con_la_extension_del_nombre(andres, pedro, apartada):
+    respuesta = declarar_pago(andres, apartada["id"], subir("foto.pdf", PNG))
+
+    descarga = pedro.get(f"/reservas/comprobantes/{comprobante_de(respuesta)}/")
+
+    assert descarga["Content-Type"] == "image/png"
+    assert descarga["Content-Disposition"].endswith('.png"')
+
+
+def test_los_listados_y_el_detalle_no_traen_el_contenido_de_los_archivos(andres, carlos, pedro, salon, apartada):
+    subir_comprobante(pedro, apartada["id"], subir("mio.png", PNG))
+    declarar_pago(andres, apartada["id"], subir("pago.pdf", PDF))
+
+    with CaptureQueriesContext(connection) as consultas:
+        del_area = carlos.get(f"/reservas/areas/{salon.id}/solicitudes/")
+        bandeja = carlos.get("/reservas/bandeja/")
+        propias = pedro.get("/reservas/solicitudes/")
+        detalle = pedro.get(f"/reservas/solicitudes/{apartada['id']}/")
+
+    assert all(r.status_code == 200 for r in (del_area, bandeja, propias, detalle))
+    for respuesta in (del_area, bandeja):
+        (solicitud_listada,) = respuesta.json()
+        assert [c["nombre"] for c in solicitud_listada["pago"]["comprobantes"]] == ["mio.png", "pago.pdf"]
+        assert [c["del_residente"] for c in solicitud_listada["pago"]["comprobantes"]] == [True, False]
+    assert PDF.decode("latin-1") not in del_area.content.decode()
+    leen_contenido = [c["sql"] for c in consultas.captured_queries if '"reservas_comprobantedepago"."contenido"' in c["sql"]]
+    assert leen_contenido == []

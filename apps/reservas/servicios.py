@@ -10,6 +10,7 @@ hasta HU-33 (Sprint 6), y sin esto los Sprints 3 y 4 no se podrían demostrar.
 from datetime import datetime, timedelta
 
 from django.db import transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 from django.utils.formats import date_format
 
@@ -23,7 +24,7 @@ from apps.permisos.models import Asignacion
 from apps.reglas.catalogo import TipoDeRegla
 from apps.reglas.evaluador import evaluar
 from apps.reglas.servicios import reglas_vigentes
-from apps.reservas.models import BLOQUEANTES, EstadoSolicitud, MotivoLiberacion, Solicitud
+from apps.reservas.models import BLOQUEANTES, ComprobanteDePago, EstadoSolicitud, MotivoLiberacion, Solicitud
 from apps.unidades.models import Unidad
 from apps.unidades.servicios import unidades_para_solicitar
 
@@ -119,6 +120,11 @@ def franjas(persona, area, fecha):
         solicitud.hora_inicio: solicitud
         for solicitud in Solicitud.objects.filter(area=area, fecha=fecha, estado__in=BLOQUEANTES)
     }
+    # Con «una reserva al día», las franjas libres de un día que ya tiene reserva no se ofrecen.
+    dia_tomado = (
+        any(solicitud.estado != EstadoSolicitud.EN_SOLICITUD for solicitud in ocupadas.values())
+        and reglas_vigentes(area, timezone.localdate()).filter(tipo=TipoDeRegla.UNA_RESERVA_POR_DIA).exists()
+    )
     ahora = timezone.now()
     resultado = []
     for inicio, fin in bloques:
@@ -126,7 +132,7 @@ def franjas(persona, area, fecha):
         if inicio_de(fecha, inicio) <= ahora:
             estado = "pasada"
         elif solicitud is None:
-            estado = "libre"
+            estado = "no_disponible" if dia_tomado else "libre"
         elif solicitud.persona_id == persona.id:
             estado = "propia"
         else:
@@ -182,33 +188,45 @@ def liberar(persona, solicitud):
     return solicitud
 
 
+def con_comprobantes(consulta):
+    """Trae los comprobantes de cada solicitud en una sola consulta y sin su contenido (HU-16).
+
+    Quedan en `comprobantes_cargados`: los serializers leen de ahí y no tocan el archivo.
+    """
+    comprobantes = ComprobanteDePago.objects.defer("contenido").select_related("subido_por").order_by("subido_en")
+    return consulta.prefetch_related(Prefetch("comprobantes", queryset=comprobantes, to_attr="comprobantes_cargados"))
+
+
 def solicitudes_de(persona):
     """Solo las propias (plan P14). La bandeja del administrador es HU-14."""
     expirar_vencidas()
-    return Solicitud.objects.filter(persona=persona).select_related("area", "unidad").order_by("-creada_en")
+    consulta = Solicitud.objects.filter(persona=persona).select_related("area", "unidad").order_by("-creada_en")
+    return con_comprobantes(consulta)
 
 
 def solicitudes_para_area(area):
     """Solicitudes enviadas y su historial de decisiones para la bandeja administrativa del área."""
-    return (
+    consulta = (
         Solicitud.objects.filter(
             area=area,
             estado__in=[EstadoSolicitud.APARTADA, EstadoSolicitud.RESERVADA, EstadoSolicitud.RECHAZADA],
         )
-        .select_related("area", "persona", "unidad", "decidida_por")
+        .select_related("area", "persona", "unidad", "decidida_por", "pago_declarado_por")
         .order_by("-creada_en")
     )
+    return con_comprobantes(consulta)
 
 
 def solicitudes_para_bandeja():
     """Reservas enviadas o decididas del conjunto activo, para la pestaña general de Solicitudes."""
-    return (
+    consulta = (
         Solicitud.objects.filter(
             estado__in=[EstadoSolicitud.APARTADA, EstadoSolicitud.RESERVADA, EstadoSolicitud.RECHAZADA]
         )
-        .select_related("area", "persona", "unidad", "decidida_por")
+        .select_related("area", "persona", "unidad", "decidida_por", "pago_declarado_por")
         .order_by("-creada_en")
     )
+    return con_comprobantes(consulta)
 
 
 def decidir_solicitud(actor, solicitud_id, decision, motivo):
@@ -308,6 +326,8 @@ def enviar(persona, solicitud_id, *, unidad_id, motivo, asistentes, observacione
     expirar_vencidas()
     error = None
     with transaction.atomic():
+        # Bloquea también la fila del área: dos envíos sobre la misma área se evalúan uno después del otro,
+        # y el segundo ya cuenta la reserva del primero (una reserva al día, cupo, franjas seguidas).
         solicitud = Solicitud.objects.select_for_update().select_related("area").filter(pk=solicitud_id).first()
         if solicitud is None or solicitud.persona_id != persona.id:
             raise SolicitudNoEncontrada()

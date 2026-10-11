@@ -29,6 +29,8 @@ urlpatterns = [
     path("reglas/", include("apps.reglas.urls")),
     path("reservas/", include("apps.reservas.urls")),
     path("ingresos/", include("apps.ingresos.urls")),
+    path("parqueaderos/", include("apps.parqueaderos.urls")),
+    path("pagos/", include("apps.pagos.urls")),
     path("visitantes/", include("apps.visitantes.urls")),
     path("documentos/", include("apps.documentos.urls")),
 ]

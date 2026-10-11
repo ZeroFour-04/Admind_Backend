@@ -1,5 +1,8 @@
 """Catálogo cerrado de reglas de reserva, por niveles (definición del 2026-10-06, HU-10).
 
+El 2026-10-10 entraron dos reglas de área sin parámetros: una reserva al día y sin franjas seguidas, y
+el día límite de pago, que ningún evaluador evalúa: la lee `pagos` para calcular la mora (HU-35).
+
 Una regla alfa es del conjunto y vale para todas sus áreas; una beta es de un área. Cada tipo
 vive en un solo nivel y se define una sola vez. Todos restringen: no existe ninguno que permita
 algo, así que se evalúan en AND sin conflictos. Los tipos retirados quedan para leer el historial.
@@ -21,9 +24,12 @@ class TipoDeRegla(models.TextChoices):
     ANTICIPACION_MINIMA = "ANTICIPACION_MINIMA", "Anticipación mínima"
     ANTICIPACION_MAXIMA = "ANTICIPACION_MAXIMA", "Anticipación máxima"
     REQUIERE_PAZ_Y_SALVO = "REQUIERE_PAZ_Y_SALVO", "Paz y salvo"
+    DIA_LIMITE_DE_PAGO = "DIA_LIMITE_DE_PAGO", "Día límite de pago"
     DIAS_QUE_NO_ABRE = "DIAS_QUE_NO_ABRE", "Días que no abre"
     CUPO_POR_UNIDAD = "CUPO_POR_UNIDAD", "Límite de reservas por apartamento"
     ACOMPANANTES = "ACOMPANANTES", "Acompañantes"
+    UNA_RESERVA_POR_DIA = "UNA_RESERVA_POR_DIA", "Una reserva al día"
+    SIN_FRANJAS_SEGUIDAS = "SIN_FRANJAS_SEGUIDAS", "Sin franjas seguidas"
     # Retirados el 2026-10-06. Quedan para leer el historial: no se crean ni se editan.
     AFORO = "AFORO", "Aforo"
     FRANJA_HORARIA = "FRANJA_HORARIA", "Franja horaria"
@@ -35,9 +41,12 @@ NIVEL_POR_TIPO = {
     TipoDeRegla.ANTICIPACION_MINIMA: Nivel.ALFA,
     TipoDeRegla.ANTICIPACION_MAXIMA: Nivel.ALFA,
     TipoDeRegla.REQUIERE_PAZ_Y_SALVO: Nivel.ALFA,
+    TipoDeRegla.DIA_LIMITE_DE_PAGO: Nivel.ALFA,
     TipoDeRegla.ACOMPANANTES: Nivel.ALFA,
     TipoDeRegla.DIAS_QUE_NO_ABRE: Nivel.BETA,
     TipoDeRegla.CUPO_POR_UNIDAD: Nivel.BETA,
+    TipoDeRegla.UNA_RESERVA_POR_DIA: Nivel.BETA,
+    TipoDeRegla.SIN_FRANJAS_SEGUIDAS: Nivel.BETA,
 }
 # A qué modo de uso del área aplica cada tipo vigente (plan P5). Una regla de área solo se define en un área de sus modos.
 MODO_RESERVA, MODO_INGRESO = "reserva", "ingreso"
@@ -45,9 +54,13 @@ MODOS_POR_TIPO = {
     TipoDeRegla.ANTICIPACION_MINIMA: [MODO_RESERVA],
     TipoDeRegla.ANTICIPACION_MAXIMA: [MODO_RESERVA],
     TipoDeRegla.REQUIERE_PAZ_Y_SALVO: [MODO_RESERVA, MODO_INGRESO],
+    # Ningún modo: no restringe por sí sola, la lee `pagos` para saber desde cuándo hay mora.
+    TipoDeRegla.DIA_LIMITE_DE_PAGO: [],
     TipoDeRegla.ACOMPANANTES: [MODO_INGRESO],
     TipoDeRegla.DIAS_QUE_NO_ABRE: [MODO_RESERVA, MODO_INGRESO],
     TipoDeRegla.CUPO_POR_UNIDAD: [MODO_RESERVA],
+    TipoDeRegla.UNA_RESERVA_POR_DIA: [MODO_RESERVA],
+    TipoDeRegla.SIN_FRANJAS_SEGUIDAS: [MODO_RESERVA],
 }
 # Como texto, porque van dentro de una restricción de la base (F3).
 TIPOS_ALFA = [tipo.value for tipo, nivel in NIVEL_POR_TIPO.items() if nivel == Nivel.ALFA]
@@ -65,7 +78,11 @@ DESCRIPCION_POR_TIPO = {
     ),
     TipoDeRegla.REQUIERE_PAZ_Y_SALVO: (
         "Si la activas, un apartamento en mora con la administración no reserva ni ingresa a las zonas comunes "
-        "hasta ponerse al día."
+        "hasta ponerse al día. Aplícala solo si el reglamento del conjunto lo permite."
+    ),
+    TipoDeRegla.DIA_LIMITE_DE_PAGO: (
+        "El día del mes hasta el que se paga la administración sin entrar en mora. Con 10, quien no tenga el "
+        "pago confirmado el 11 queda en mora."
     ),
     TipoDeRegla.ACOMPANANTES: (
         "Cuántos acompañantes puede tener adentro una misma vivienda a la vez, en las áreas con ingreso. Con 2, "
@@ -80,10 +97,20 @@ DESCRIPCION_POR_TIPO = {
         "Cuántas reservas de esta área puede tener un mismo apartamento en un periodo. Con 2 cada 30 días, "
         "un apartamento no aparta el salón todos los fines de semana."
     ),
+    TipoDeRegla.UNA_RESERVA_POR_DIA: (
+        "Si la activas, el área admite una sola reserva por día: cuando una franja queda apartada o reservada, "
+        "las demás de ese día dejan de ofrecerse. Sirve para un salón comunal. Sin esta regla, cada franja se "
+        "reserva por separado."
+    ),
+    TipoDeRegla.SIN_FRANJAS_SEGUIDAS: (
+        "Si la activas, un mismo apartamento no reserva dos franjas seguidas del mismo día en esta área. Con "
+        "franjas de 8:00 a 12:00 y de 12:00 a 16:00, quien tiene la primera no toma la segunda. Sin esta regla, "
+        "puede encadenarlas."
+    ),
 }
-# Reglas que ya se pueden definir pero todavía no restringen nada. Se quita la nota cuando llegue su módulo.
+# Lo que Administración tiene que saber de una regla antes de definirla.
 NOTA_POR_TIPO = {
-    TipoDeRegla.REQUIERE_PAZ_Y_SALVO: "Todavía no restringe: falta el módulo de pagos.",
+    TipoDeRegla.REQUIERE_PAZ_Y_SALVO: "Solo restringe si también defines el día límite de pago.",
 }
 
 
@@ -123,6 +150,19 @@ def entero(minimo):
             raise ValueError("Debe ser un número entero.")
         if valor < minimo:
             raise ValueError(f"Debe ser mayor o igual a {minimo}.")
+        return valor
+
+    return validar
+
+
+def entero_entre(minimo, maximo):
+    """Un entero de `minimo` a `maximo`, ambos incluidos."""
+    desde_el_minimo = entero(minimo)
+
+    def validar(valor):
+        valor = desde_el_minimo(valor)
+        if valor > maximo:
+            raise ValueError(f"Debe ser menor o igual a {maximo}.")
         return valor
 
     return validar
@@ -178,10 +218,15 @@ PARAMETROS_POR_TIPO = {
     TipoDeRegla.ANTICIPACION_MINIMA: {"horas": entero(0)},
     TipoDeRegla.ANTICIPACION_MAXIMA: {"dias": entero(1)},
     TipoDeRegla.REQUIERE_PAZ_Y_SALVO: {},
+    # Hasta el 28, para que el día exista en todos los meses.
+    TipoDeRegla.DIA_LIMITE_DE_PAGO: {"dia": entero_entre(1, 28)},
     TipoDeRegla.DIAS_QUE_NO_ABRE: {"renglones": renglones},
     TipoDeRegla.CUPO_POR_UNIDAD: {"reservas": entero(1), "dias": entero(1)},
     # 0 es «no se permiten»: así la regla, como todas, solo restringe (plan D8 a).
     TipoDeRegla.ACOMPANANTES: {"maximo": entero(0)},
+    # Sin parámetros: definirlas es activarlas. Sin definir, el área sigue como estaba; así solo restringen.
+    TipoDeRegla.UNA_RESERVA_POR_DIA: {},
+    TipoDeRegla.SIN_FRANJAS_SEGUIDAS: {},
 }
 
 
@@ -250,6 +295,12 @@ def describir(tipo, p):
         if p["maximo"] == 0:
             return "No se permiten acompañantes"
         return f"Máximo {p['maximo']} {'acompañante' if p['maximo'] == 1 else 'acompañantes'} por vivienda a la vez"
+    if tipo == TipoDeRegla.DIA_LIMITE_DE_PAGO:
+        return f"La administración se paga hasta el día {p['dia']} de cada mes"
+    if tipo == TipoDeRegla.UNA_RESERVA_POR_DIA:
+        return "Solo una reserva al día"
+    if tipo == TipoDeRegla.SIN_FRANJAS_SEGUIDAS:
+        return "Un apartamento no reserva franjas seguidas"
     if tipo == TipoDeRegla.AFORO:
         return f"Máximo {p['maximo']} asistentes"
     if tipo == TipoDeRegla.FRANJA_HORARIA:

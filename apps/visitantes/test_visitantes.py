@@ -123,6 +123,54 @@ def test_vigilancia_no_puede_registrar_vehiculo_sin_placa_y_tipo(datos):
     assert "tipo_vehiculo" in respuesta.json()
 
 
+def test_vigilancia_puede_registrar_bicicleta_sin_placa(datos):
+    conjunto, unidad = datos
+    crear_usuario("vigilancia@torres.com", conjunto, Rol.VIGILANCIA)
+    vigilancia = cliente_para("vigilancia@torres.com")
+
+    respuesta = vigilancia.post(
+        "/visitantes/",
+        {
+            "nombre": "Pedro Ruiz",
+            "cedula": "987654321",
+            "ingresa_con_vehiculo": True,
+            "tipo_vehiculo": "Bicicleta",
+            "apartamento_visitado": str(unidad.id),
+        },
+        format="json",
+    )
+
+    assert respuesta.status_code == 201
+    assert respuesta.json()["tipo_vehiculo"] == "Bicicleta"
+    assert respuesta.json()["placa_vehiculo"] == ""
+
+
+def test_vigilancia_puede_buscar_visitantes_por_nombre_o_cedula(datos):
+    conjunto, unidad = datos
+    crear_usuario("vigilancia@torres.com", conjunto, Rol.VIGILANCIA)
+    vigilancia = cliente_para("vigilancia@torres.com")
+
+    visita(vigilancia, unidad, con_vehiculo=False)
+    vigilancia.post(
+        "/visitantes/",
+        {
+            "nombre": "Ana Gómez",
+            "cedula": "1020304050",
+            "ingresa_con_vehiculo": False,
+            "apartamento_visitado": str(unidad.id),
+        },
+        format="json",
+    )
+
+    por_nombre = vigilancia.get("/visitantes/?q=Ana")
+    assert por_nombre.status_code == 200
+    assert [v["nombre"] for v in por_nombre.json()] == ["Ana Gómez"]
+
+    por_cedula = vigilancia.get("/visitantes/?buscar=1020304050")
+    assert por_cedula.status_code == 200
+    assert [v["cedula"] for v in por_cedula.json()] == ["1020304050"]
+
+
 def test_vigilancia_puede_consultar_unidades_para_el_formulario(datos):
     conjunto, unidad = datos
     crear_usuario("vigilancia@torres.com", conjunto, Rol.VIGILANCIA)

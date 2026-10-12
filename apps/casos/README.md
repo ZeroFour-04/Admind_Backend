@@ -1,8 +1,10 @@
 # casos
 
+El residente crea un caso con título, descripción y una imagen opcional. La imagen se valida por firma y tamaño, y se almacena separada del registro del caso. Secretaría puede rechazarlo indicando una razón o redirigirlo a Administración; Administración ve únicamente los casos redirigidos.
+
 Alcance: Comprometido (§3.2).
 
-Los casos que abre un residente: algo que el conjunto tiene que atender y responder.
+Los casos que abre un residente: algo que el conjunto tiene que atender y responder. La bandeja muestra el residente, su vivienda residencial vigente y la fecha de creación. Si se rechaza un caso, el motivo queda visible al residente al consultar el detalle.
 
 ## Qué va aquí
 

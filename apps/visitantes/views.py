@@ -22,7 +22,8 @@ class VisitantesView(VistaDeConjunto):
         solo_de_hoy = not tiene_permiso(
             request.user.persona, request.auth.conjunto_activo_id, "visitante.ver_historico"
         )
-        return Response(VisitanteSerializer(servicios.visitantes_para(solo_de_hoy), many=True).data)
+        busqueda = request.GET.get("q") or request.GET.get("buscar") or ""
+        return Response(VisitanteSerializer(servicios.visitantes_para(solo_de_hoy, buscar=busqueda), many=True).data)
 
     def post(self, request):
         exigir_permiso(request, "visitante.registrar")

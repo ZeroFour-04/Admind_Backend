@@ -10,12 +10,14 @@ from apps.comun.archivos import comprobantes
 from apps.permisos.views import exigir_permiso, tiene_permiso_en_conjunto
 from apps.reservas import pago, servicios
 from apps.reservas.serializers import (
+    CampanaSerializer,
     ConsultarFranjasSerializer,
     DecisionDeSolicitudSerializer,
     DeclararPagoSerializer,
     DetalleDeSolicitudSerializer,
     EnviarSolicitudSerializer,
     FranjaSerializer,
+    MarcarDisponibilidadSerializer,
     RetirarPagoSerializer,
     SolicitudSerializer,
     SolicitudParaAdministrarSerializer,
@@ -108,6 +110,27 @@ class SolicitudesView(VistaDeConjunto):
                 status=status.HTTP_409_CONFLICT,
             )
         return Response(DetalleDeSolicitudSerializer(solicitud).data, status=status.HTTP_201_CREATED)
+
+
+class MarcarDisponibilidadView(VistaDeConjunto):
+    def post(self, request):
+        exigir_permiso(request, "reserva.solicitar")
+        datos = MarcarDisponibilidadSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        area = area_del_conjunto(datos.validated_data["area"])
+        try:
+            campana = servicios.activar_campana(
+                request.user.persona,
+                area,
+                datos.validated_data["fecha"],
+                datos.validated_data["hora_inicio"],
+            )
+        except servicios.FranjaInvalida:
+            return Response(
+                {"hora_inicio": ["Esa franja no está en el horario del área o ya empezó."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(CampanaSerializer(campana).data, status=status.HTTP_201_CREATED)
 
 
 class SolicitudesDeAreaView(VistaDeConjunto):

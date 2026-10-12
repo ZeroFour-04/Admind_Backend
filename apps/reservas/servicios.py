@@ -24,7 +24,7 @@ from apps.permisos.models import Asignacion
 from apps.reglas.catalogo import TipoDeRegla
 from apps.reglas.evaluador import evaluar
 from apps.reglas.servicios import reglas_vigentes
-from apps.reservas.models import BLOQUEANTES, ComprobanteDePago, EstadoSolicitud, MotivoLiberacion, Solicitud
+from apps.reservas.models import BLOQUEANTES, Campana, ComprobanteDePago, EstadoSolicitud, MotivoLiberacion, Solicitud
 from apps.unidades.models import Unidad
 from apps.unidades.servicios import unidades_para_solicitar
 
@@ -100,14 +100,49 @@ def inicio_de(fecha, hora):
     return timezone.make_aware(datetime.combine(fecha, hora))
 
 
+def notificar_disponibilidad(area, fecha, hora_inicio, hora_fin):
+    """Si alguien dejó marcada la franja, avisamos cuando vuelve a quedar libre."""
+    campanas = list(
+        Campana.objects.filter(
+            area=area,
+            fecha=fecha,
+            hora_inicio=hora_inicio,
+            hora_fin=hora_fin,
+            activa=True,
+        ).select_related("persona")
+    )
+    if not campanas:
+        return
+
+    for campana in campanas:
+        aviso = Aviso(
+            "Zona disponible",
+            f'La zona común "{area.nombre}" para el día {date_format(fecha, r"l j \d\e F \d\e Y").lower()} a las {hora_inicio:%H:%M} está disponible.',
+            origen="reserva.disponible",
+            referencia=campana.id,
+        )
+        notificar(aviso, [campana.persona_id])
+        campana.activa = False
+        campana.notificada_en = timezone.now()
+        campana.save(update_fields=["activa", "notificada_en"])
+
+
 def expirar_vencidas(ahora=None):
-    return bloqueo.expirar_vencidos(
+    ahora = ahora or timezone.now()
+    expiradas = list(
+        Solicitud.objects.filter(estado=EstadoSolicitud.EN_SOLICITUD, bloqueo_vence_en__lte=ahora)
+        .select_related("area")
+    )
+    cantidad = bloqueo.expirar_vencidos(
         Solicitud.objects,
         campo_vence="bloqueo_vence_en",
         estado_activo=EstadoSolicitud.EN_SOLICITUD,
         estado_expirado=EstadoSolicitud.EXPIRADA,
-        ahora=ahora or timezone.now(),
+        ahora=ahora,
     )
+    for solicitud in expiradas:
+        notificar_disponibilidad(solicitud.area, solicitud.fecha, solicitud.hora_inicio, solicitud.hora_fin)
+    return cantidad
 
 
 def franjas(persona, area, fecha):
@@ -175,6 +210,28 @@ def tomar_bloqueo(persona, area, fecha, hora_inicio):
         raise FranjaOcupada() from ocupado
 
 
+def activar_campana(persona, area, fecha, hora_inicio):
+    """Marca la franja para avisar cuando quede libre. La campana se consume al notificar."""
+    hora_fin = dict(franjas_del_dia(area, fecha)).get(hora_inicio)
+    if hora_fin is None:
+        raise FranjaInvalida()
+    with transaction.atomic():
+        campana, _ = Campana.objects.get_or_create(
+            conjunto_id=area.conjunto_id,
+            area=area,
+            persona=persona,
+            fecha=fecha,
+            hora_inicio=hora_inicio,
+            hora_fin=hora_fin,
+            defaults={"activa": True},
+        )
+        if not campana.activa:
+            campana.activa = True
+            campana.notificada_en = None
+            campana.save(update_fields=["activa", "notificada_en"])
+    return campana
+
+
 def liberar(persona, solicitud):
     """La dueña suelta el bloqueo a propósito: la franja queda libre de inmediato y no gasta oportunidad (R9)."""
     expirar_vencidas()
@@ -185,6 +242,7 @@ def liberar(persona, solicitud):
     if not cambiadas:
         raise NoEstaEnTramite()
     solicitud.refresh_from_db()
+    notificar_disponibilidad(solicitud.area, solicitud.fecha, solicitud.hora_inicio, solicitud.hora_fin)
     return solicitud
 
 
@@ -263,6 +321,8 @@ def decidir_solicitud(actor, solicitud_id, decision, motivo):
             antes={"estado": estado_anterior},
             despues={"estado": decision, "motivo": motivo},
         )
+        if decision == EstadoSolicitud.RECHAZADA:
+            notificar_disponibilidad(solicitud.area, solicitud.fecha, solicitud.hora_inicio, solicitud.hora_fin)
     return solicitud
 
 
@@ -372,6 +432,8 @@ def enviar(persona, solicitud_id, *, unidad_id, motivo, asistentes, observacione
                 despues={"estado": solicitud.estado, "unidad": unidad.id, "asistentes": asistentes},
                 detalle={"evaluacion": solicitud.evaluacion},
             )
+            if motivos:
+                notificar_disponibilidad(solicitud.area, solicitud.fecha, solicitud.hora_inicio, solicitud.hora_fin)
             if not motivos:
                 avisar_a_la_administracion(solicitud)
     if error:

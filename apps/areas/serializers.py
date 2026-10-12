@@ -20,6 +20,7 @@ class CrearAreaSerializer(serializers.Serializer):
     modo_uso = serializers.ChoiceField(choices=ModoDeUso.choices, required=False, default=ModoDeUso.RESERVA)
     nombre = serializers.CharField(max_length=80)
     descripcion = serializers.CharField(allow_blank=True, required=False, default="")
+    condiciones_alquiler = serializers.CharField(max_length=1000, allow_blank=True, required=False, default="")
     hora_apertura = serializers.TimeField()
     hora_cierre = serializers.TimeField()
     duracion_franja_minutos = serializers.IntegerField(
@@ -61,6 +62,7 @@ class EditarAreaSerializer(serializers.Serializer):
 
     nombre = serializers.CharField(max_length=80, required=False)
     descripcion = serializers.CharField(allow_blank=True, required=False)
+    condiciones_alquiler = serializers.CharField(max_length=1000, allow_blank=True, required=False)
     hora_apertura = serializers.TimeField(required=False)
     hora_cierre = serializers.TimeField(required=False)
     duracion_franja_minutos = serializers.IntegerField(
@@ -93,6 +95,7 @@ class AreaSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     nombre = serializers.CharField()
     descripcion = serializers.CharField()
+    condiciones_alquiler = serializers.CharField()
     hora_apertura = serializers.TimeField(format="%H:%M")
     hora_cierre = serializers.TimeField(format="%H:%M")
     modo_uso = serializers.CharField()

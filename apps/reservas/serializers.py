@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from apps.reservas import servicios
-from apps.reservas.models import ComprobanteDePago
+from apps.reservas.models import Campana, ComprobanteDePago
 from apps.unidades.servicios import unidades_para_solicitar
 
 _FECHA = serializers.DateTimeField()
@@ -40,7 +40,28 @@ class FranjaSerializer(serializers.Serializer):
     estado = serializers.CharField()
 
 
+class CampanaSerializer(serializers.ModelSerializer):
+    area = serializers.SerializerMethodField()
+    fecha = serializers.DateField()
+    hora_inicio = serializers.TimeField(format="%H:%M")
+    hora_fin = serializers.TimeField(format="%H:%M")
+    activa = serializers.BooleanField()
+
+    class Meta:
+        model = Campana
+        fields = ("id", "area", "fecha", "hora_inicio", "hora_fin", "activa", "creada_en")
+
+    def get_area(self, campana):
+        return {"id": campana.area_id, "nombre": campana.area.nombre}
+
+
 class TomarBloqueoSerializer(serializers.Serializer):
+    area = serializers.UUIDField()
+    fecha = serializers.DateField()
+    hora_inicio = serializers.TimeField()
+
+
+class MarcarDisponibilidadSerializer(serializers.Serializer):
     area = serializers.UUIDField()
     fecha = serializers.DateField()
     hora_inicio = serializers.TimeField()
@@ -124,7 +145,11 @@ class SolicitudSerializer(serializers.Serializer):
         return pago
 
     def get_area(self, solicitud):
-        return {"id": solicitud.area_id, "nombre": solicitud.area.nombre}
+        return {
+            "id": solicitud.area_id,
+            "nombre": solicitud.area.nombre,
+            "condiciones_alquiler": solicitud.area.condiciones_alquiler,
+        }
 
     def get_segundos_restantes(self, solicitud):
         return servicios.segundos_restantes(solicitud)

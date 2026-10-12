@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     "apps.pagos",
     "apps.visitantes",
     "apps.documentos",
+    "apps.casos",
 ]
 AUTH_USER_MODEL = "cuentas.Usuario"
 

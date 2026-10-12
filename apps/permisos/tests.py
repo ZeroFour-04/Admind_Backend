@@ -69,6 +69,15 @@ def test_secretaria_puede_ver_areas_y_reservas():
     assert {"area.ver", "reserva.ver_todas", "reserva.aprobar", "reserva.rechazar"} <= PERMISOS_POR_ROL[Rol.SECRETARIA]
 
 
+def test_secretaria_puede_ver_todos_los_casos():
+    assert "caso.ver_todos" in PERMISOS_POR_ROL[Rol.SECRETARIA]
+
+
+def test_secretaria_puede_gestionar_casos_sin_responderlos_como_administracion():
+    assert "caso.gestionar" in PERMISOS_POR_ROL[Rol.SECRETARIA]
+    assert "caso.responder" not in PERMISOS_POR_ROL[Rol.SECRETARIA]
+
+
 def test_residente_no_tiene_permisos_sensibles():
     assert PERMISOS_POR_ROL[Rol.RESIDENTE].isdisjoint(PERMISOS_SENSIBLES)
 

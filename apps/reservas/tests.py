@@ -387,6 +387,20 @@ def test_secretaria_consulta_solicitudes_del_area_y_puede_aceptar_con_motivo(
     assert registro.despues == {"estado": "RESERVADA", "motivo": "Aforo y horario verificados."}
 
 
+def test_el_detalle_de_solicitud_incluye_condiciones_de_renta_de_su_area(
+    pedro, torres, salon, apartamentos, administracion
+):
+    condiciones = "No se permiten fiestas después de las 10 p. m."
+    salon.condiciones_alquiler = condiciones
+    salon.save(update_fields=["condiciones_alquiler"])
+    solicitud = tomar(pedro, salon).json()
+
+    respuesta = pedro.get(f"/reservas/solicitudes/{solicitud['id']}/")
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["area"]["condiciones_alquiler"] == condiciones
+
+
 def test_rechazar_solicitud_requiere_motivo_y_libera_la_franja(
     torres, salon, pedro, lucia, apartamentos, administracion
 ):

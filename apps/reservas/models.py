@@ -105,6 +105,37 @@ class Solicitud(ModeloDeConjunto):
         return f"{self.area} · {self.fecha} {self.hora_inicio:%H:%M} · {self.get_estado_display()}"
 
 
+class Campana(ModeloDeConjunto):
+    """Suscripción a una franja concreta: si vuelve a quedar libre, avisa a la persona.
+
+    La franja queda marcada como activa; al notificarse, se desactiva para no volver a avisar por el
+    mismo hueco.
+    """
+
+    area = models.ForeignKey("areas.Area", on_delete=models.PROTECT, related_name="campanas")
+    persona = models.ForeignKey("personas.Persona", on_delete=models.PROTECT, related_name="campanas_reserva")
+    fecha = models.DateField()
+    hora_inicio = models.TimeField()
+    hora_fin = models.TimeField()
+    activa = models.BooleanField(default=True)
+    creada_en = models.DateTimeField(auto_now_add=True)
+    notificada_en = models.DateTimeField(null=True, blank=True)
+
+    class Meta(ModeloDeConjunto.Meta):
+        constraints = [
+            *ModeloDeConjunto.Meta.constraints,
+            models.UniqueConstraint(
+                fields=["conjunto", "persona", "area", "fecha", "hora_inicio", "hora_fin"],
+                condition=Q(activa=True),
+                name="campana_activa_unica_por_franja",
+            ),
+        ]
+        indexes = [models.Index(fields=["conjunto", "area", "fecha", "hora_inicio"], name="campana_por_franja")]
+
+    def __str__(self):
+        return f"{self.persona} · {self.area} · {self.fecha} {self.hora_inicio:%H:%M}"
+
+
 class ComprobanteDePago(ModeloDeConjunto):
     """Un comprobante del pago de una reserva, guardado dentro de la base (HU-16, plan D5 a).
 

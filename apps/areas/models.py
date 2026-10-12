@@ -21,6 +21,7 @@ class Area(ModeloDeConjunto):
     conjunto = models.ForeignKey("conjuntos.Conjunto", on_delete=models.PROTECT, related_name="areas")
     nombre = models.CharField(max_length=80)
     descripcion = models.TextField(blank=True)
+    condiciones_alquiler = models.TextField(blank=True, default="")
     hora_apertura = models.TimeField()
     hora_cierre = models.TimeField()
     # Se elige al crear y no cambia (plan D4).

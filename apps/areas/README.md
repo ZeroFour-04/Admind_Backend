@@ -11,7 +11,7 @@ Catálogo de zonas comunes de cada conjunto: salón comunal, piscina, gimnasio y
 - Con reserva: `duracion_franja_minutos` obligatoria (al menos 120 minutos) y sin permanencia. Con ingreso: `permanencia_maxima_minutos` obligatoria (de 15 a 1 440) y sin duración
 - Un área con ingreso no se reserva: `franjas_del_dia` devuelve una lista vacía
 - Cada área lleva un **aforo máximo** obligatorio, de 1 a 10 000: toda solicitud se compara con él
-- Plantilla de **condiciones del alquiler** por área, que precarga la aprobación de una reserva
+- Administración puede guardar una plantilla de **condiciones del alquiler** por área; se devuelve con los datos del área y precarga la aprobación de una reserva
 
 ## Con qué se conecta
 

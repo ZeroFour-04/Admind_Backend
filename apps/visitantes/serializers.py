@@ -9,7 +9,7 @@ class RegistrarVisitanteSerializer(serializers.Serializer):
     ingresa_con_vehiculo = serializers.BooleanField(default=False)
     placa_vehiculo = serializers.CharField(max_length=10, required=False, allow_blank=True, default="")
     tipo_vehiculo = serializers.ChoiceField(
-        choices=(("Auto", "Auto"), ("Moto", "Moto")),
+        choices=(("Auto", "Auto"), ("Moto", "Moto"), ("Bicicleta", "Bicicleta")),
         required=False,
         allow_blank=True,
         default="",
@@ -22,10 +22,14 @@ class RegistrarVisitanteSerializer(serializers.Serializer):
         ingresa_con_vehiculo = datos["ingresa_con_vehiculo"]
         if ingresa_con_vehiculo:
             errores = {}
-            if not datos["placa_vehiculo"]:
-                errores["placa_vehiculo"] = ["Ingresa la placa del vehículo."]
             if not datos["tipo_vehiculo"]:
-                errores["tipo_vehiculo"] = ["Selecciona Auto o Moto."]
+                errores["tipo_vehiculo"] = ["Selecciona Auto, Moto o Bicicleta."]
+                if not datos["placa_vehiculo"]:
+                    errores["placa_vehiculo"] = ["Ingresa la placa del vehículo."]
+            elif datos["tipo_vehiculo"] == "Bicicleta":
+                datos["placa_vehiculo"] = ""
+            elif not datos["placa_vehiculo"]:
+                errores["placa_vehiculo"] = ["Ingresa la placa del vehículo."]
             if errores:
                 raise serializers.ValidationError(errores)
         else:

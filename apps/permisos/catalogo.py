@@ -34,7 +34,7 @@ PERMISOS = PERMISOS_DE_PLATAFORMA | frozenset({
     "usuario.gestionar", "rol.asignar", "vinculo.gestionar",
     "visitante.registrar", "visitante.ver_historico",
     "ingreso.registrar", "ingreso.ver_historico",
-    "caso.crear", "caso.ver_todos", "caso.responder",
+    "caso.crear", "caso.ver_todos", "caso.responder", "caso.gestionar",
     "solicitud.bandeja_ver", "solicitud.priorizar", "solicitud.rechazar_formal",
     "infraccion.registrar", "infraccion.ver", "infraccion.cerrar",
     "anuncio.publicar", "anuncio.dirigir",
@@ -81,7 +81,7 @@ PERMISOS_POR_ROL = {
     Rol.SECRETARIA: frozenset({
         "area.ver", "reserva.ver_todas", "reserva.aprobar", "reserva.rechazar",
         "solicitud.bandeja_ver", "solicitud.priorizar", "solicitud.rechazar_formal",
-        "anuncio.publicar", "anuncio.dirigir",
+        "anuncio.publicar", "anuncio.dirigir", "caso.ver_todos", "caso.gestionar",
         "pago.ver",
     }),
     Rol.VIGILANCIA: frozenset({

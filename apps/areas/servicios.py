@@ -13,6 +13,7 @@ from apps.permisos.servicios import tiene_permiso
 CAMPOS_EDITABLES = (
     "nombre",
     "descripcion",
+    "condiciones_alquiler",
     "hora_apertura",
     "hora_cierre",
     "duracion_franja_minutos",

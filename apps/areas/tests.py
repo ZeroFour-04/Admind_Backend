@@ -126,6 +126,21 @@ def test_editar_cambia_nombre_y_horario_y_deja_auditoria(admin, torres, salon):
     assert registro.despues == {"nombre": "Salón social", "hora_cierre": "20:00:00"}
 
 
+def test_las_condiciones_de_alquiler_se_guardan_y_se_incluyen_en_el_area(admin, torres, salon):
+    condiciones = "No se permiten fiestas después de las 10 p. m."
+    respuesta = admin.patch(
+        f"/areas/{salon['id']}/",
+        {"condiciones_alquiler": condiciones},
+        format="json",
+    )
+
+    assert respuesta.status_code == 200
+    assert respuesta.json()["condiciones_alquiler"] == condiciones
+    with usar_conjunto(torres.id):
+        registro = Registro.objects.get(accion="area.editar")
+    assert registro.despues == {"condiciones_alquiler": condiciones}
+
+
 def test_crear_y_desactivar_quedan_en_la_auditoria(admin, torres, salon):
     admin.post(f"/areas/{salon['id']}/desactivar/")
 

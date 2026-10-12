@@ -52,7 +52,7 @@ def exigir_vigilancia(actor, conjunto_id):
         raise SoloVigilancia()
 
 
-def visitantes_para(solo_de_hoy):
+def visitantes_para(solo_de_hoy, buscar=None):
     """El listado, el más reciente primero.
 
     Para quien solo registra: las de hoy **y** las que siguen adentro de días anteriores. Sin
@@ -63,6 +63,10 @@ def visitantes_para(solo_de_hoy):
         visitantes = visitantes.filter(
             Q(hora_entrada__date=timezone.localdate()) | Q(hora_salida__isnull=True)
         )
+    if buscar:
+        termino = buscar.strip()
+        if termino:
+            visitantes = visitantes.filter(Q(nombre__icontains=termino) | Q(cedula__icontains=termino))
     return visitantes
 
 

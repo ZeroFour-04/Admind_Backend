@@ -8,6 +8,7 @@ from datetime import datetime
 
 from django.utils import timezone
 
+from apps.areas.models import ModoDeUso
 from apps.unidades.models import VinculoUnidad
 
 
@@ -61,10 +62,11 @@ def no_en_el_pasado(solicitud):
 
 def area_disponible(solicitud):
     area = solicitud.area
-    cumple = area.activo and not area.en_mantenimiento
+    # El modo puede cambiar mientras la solicitud está en trámite: un área con ingreso ya no se reserva.
+    cumple = area.activo and not area.en_mantenimiento and area.modo_uso == ModoDeUso.RESERVA
     return Resultado(
         "AREA_DISPONIBLE",
-        "El área está activa y no está en mantenimiento",
+        "El área está activa, no está en mantenimiento y se usa con reserva",
         cumple,
         "" if cumple else "Esta área no está disponible para reservas en este momento.",
     )

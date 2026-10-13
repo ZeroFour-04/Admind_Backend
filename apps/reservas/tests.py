@@ -633,6 +633,21 @@ def test_un_area_con_ingreso_no_tiene_franjas_ni_se_reserva(torres, pedro):
         assert not Solicitud.objects.exists()
 
 
+def test_una_solicitud_en_tramite_no_se_aparta_si_el_area_paso_a_ser_con_ingreso(pedro, torres, salon, apartamentos):
+    en_tramite = tomar(pedro, salon).json()
+    with usar_conjunto(torres.id):
+        Area.objects.filter(pk=salon.id).update(
+            modo_uso="ingreso", duracion_franja_minutos=None, permanencia_maxima_minutos=60
+        )
+
+    respuesta = enviar(pedro, en_tramite["id"], apartamentos[0])
+
+    assert respuesta.status_code == 400
+    assert respuesta.json()["motivos"] == ["Esta área no está disponible para reservas en este momento."]
+    liberada = solicitud(torres, en_tramite["id"])
+    assert (liberada.estado, liberada.motivo_liberacion) == ("LIBERADA", "reglas")
+
+
 # Pago declarado y comprobantes (HU-16)
 
 PDF = b"%PDF-1.7\n1 0 obj\n<<>>\nendobj\n"

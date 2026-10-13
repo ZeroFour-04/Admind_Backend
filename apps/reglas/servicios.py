@@ -143,3 +143,18 @@ def retirar(actor, regla):
         cerrar(regla, timezone.localdate())
         auditoria.registrar(actor, "regla.retirar", "Regla", regla.id, antes=antes, despues=datos_de_la_regla(regla))
     return regla
+
+
+def retirar_las_de_otro_modo(actor, area):
+    """Retira las reglas abiertas del área que no aplican a su modo de uso, una por una. Las devuelve.
+
+    La llama el cambio de modo de un área: así el tablero muestra solo lo que de verdad se evalúa.
+    """
+    sobrantes = [
+        regla
+        for regla in Regla.objects.abiertas().filter(area=area).order_by("tipo")
+        if area.modo_uso not in catalogo.MODOS_POR_TIPO.get(regla.tipo, [])
+    ]
+    for regla in sobrantes:
+        retirar(actor, regla)
+    return sobrantes

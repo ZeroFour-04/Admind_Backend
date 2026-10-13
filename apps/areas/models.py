@@ -24,7 +24,7 @@ class Area(ModeloDeConjunto):
     condiciones_alquiler = models.TextField(blank=True, default="")
     hora_apertura = models.TimeField()
     hora_cierre = models.TimeField()
-    # Se elige al crear y no cambia (plan D4).
+    # Se elige al crear y se puede cambiar después: `servicios.cambiar_modo`.
     modo_uso = models.CharField(max_length=10, choices=ModoDeUso.choices, default=ModoDeUso.RESERVA)
     # Solo en las áreas con reserva.
     duracion_franja_minutos = models.PositiveSmallIntegerField(null=True, blank=True)

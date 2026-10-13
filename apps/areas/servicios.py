@@ -75,6 +75,33 @@ def editar(actor, area, **datos):
     return cambiar(actor, area, "area.editar", **{campo: datos[campo] for campo in CAMPOS_EDITABLES if campo in datos})
 
 
+def cambiar_modo(actor, area, modo_uso, **datos):
+    """Pasa el área al otro modo de uso, con el dato propio del modo nuevo, y dice qué quedó del anterior.
+
+    Lo que ya existe no se toca: las reservas apartadas o reservadas siguen válidas y quien está adentro
+    sigue adentro hasta su salida. Se cuentan, para que Administración decida caso por caso. Las reglas
+    del área que no aplican al modo nuevo se retiran, cada una con su registro.
+    """
+    # Tardíos: reglas, reservas e ingresos ya importan esta app.
+    from apps.ingresos import servicios as ingresos
+    from apps.reglas import servicios as reglas
+    from apps.reservas import servicios as reservas
+
+    campos = {campo: datos[campo] for campo in CAMPOS_EDITABLES if campo in datos}
+    ajeno = "duracion_franja_minutos" if modo_uso == ModoDeUso.INGRESO else "permanencia_maxima_minutos"
+    with transaction.atomic():
+        # La misma fila que toman un ingreso y el envío de una reserva: pasan antes o después del cambio.
+        area.refresh_from_db(from_queryset=Area.objects.select_for_update())
+        cambiar(actor, area, "area.cambiar_modo", **{**campos, "modo_uso": modo_uso, ajeno: None})
+        retiradas = reglas.retirar_las_de_otro_modo(actor, area)
+        ingresos.dar_salida_a_vencidos()
+        return {
+            "reservas_por_cumplir": reservas.reservas_por_cumplir(area),
+            "personas_adentro": ingresos.ocupacion(area),
+            "reglas_retiradas": [regla.get_tipo_display() for regla in retiradas],
+        }
+
+
 def poner_en_mantenimiento(actor, area, en_mantenimiento):
     """Un área en mantenimiento sigue en el catálogo pero no admite solicitudes (HU-09)."""
     return cambiar(actor, area, "area.mantenimiento", en_mantenimiento=en_mantenimiento)

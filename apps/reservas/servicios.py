@@ -275,6 +275,15 @@ def solicitudes_para_area(area):
     return con_comprobantes(consulta)
 
 
+def reservas_por_cumplir(area):
+    """Cuántas solicitudes apartadas o reservadas tiene el área de hoy en adelante."""
+    return Solicitud.objects.filter(
+        area=area,
+        estado__in=[EstadoSolicitud.APARTADA, EstadoSolicitud.RESERVADA],
+        fecha__gte=timezone.localdate(),
+    ).count()
+
+
 def solicitudes_para_bandeja():
     """Reservas enviadas o decididas del conjunto activo, para la pestaña general de Solicitudes."""
     consulta = (

@@ -48,13 +48,19 @@ class DetalleDeAreaView(VistaDeConjunto):
         datos.is_valid(raise_exception=True)
         campos = dict(datos.validated_data)
         en_mantenimiento = campos.pop("en_mantenimiento", None)
+        modo_uso = campos.pop("modo_uso", area.modo_uso)
+        cambio_de_modo = None
         try:
-            servicios.editar(request.user.persona, area, **campos)
+            if modo_uso != area.modo_uso:
+                cambio_de_modo = servicios.cambiar_modo(request.user.persona, area, modo_uso, **campos)
+            else:
+                servicios.editar(request.user.persona, area, **campos)
         except servicios.NombreRepetido:
             return Response(MENSAJE_NOMBRE_REPETIDO, status=status.HTTP_400_BAD_REQUEST)
         if en_mantenimiento is not None:
             servicios.poner_en_mantenimiento(request.user.persona, area, en_mantenimiento)
-        return Response(AreaSerializer(area).data)
+        # Lleva datos solo si el modo cambió: lo que quedó del modo anterior, para avisarlo.
+        return Response({**AreaSerializer(area).data, "cambio_de_modo": cambio_de_modo})
 
 
 class DesactivarAreaView(VistaDeConjunto):

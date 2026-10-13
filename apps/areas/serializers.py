@@ -8,7 +8,6 @@ MENSAJE_DURACION_SOLO_RESERVA = "La duración de la franja es solo para áreas c
 MENSAJE_DURACION_OBLIGATORIA = "La duración de la franja es obligatoria en un área con reserva."
 MENSAJE_PERMANENCIA_SOLO_INGRESO = "La permanencia máxima es solo para áreas con ingreso."
 MENSAJE_PERMANENCIA_OBLIGATORIA = "La permanencia máxima es obligatoria en un área con ingreso."
-MENSAJE_MODO_FIJO = "El modo de uso no cambia después de crear el área."
 
 
 def validar_horario(apertura, cierre):
@@ -58,8 +57,9 @@ class CrearAreaSerializer(serializers.Serializer):
 
 
 class EditarAreaSerializer(serializers.Serializer):
-    """Nombre, descripción, horario, aforo y mantenimiento."""
+    """Nombre, descripción, horario, aforo, mantenimiento y modo de uso."""
 
+    modo_uso = serializers.ChoiceField(choices=ModoDeUso.choices, required=False)
     nombre = serializers.CharField(max_length=80, required=False)
     descripcion = serializers.CharField(allow_blank=True, required=False)
     condiciones_alquiler = serializers.CharField(max_length=1000, allow_blank=True, required=False)
@@ -75,19 +75,20 @@ class EditarAreaSerializer(serializers.Serializer):
     aforo_maximo = serializers.IntegerField(min_value=1, max_value=10000, required=False)
     en_mantenimiento = serializers.BooleanField(required=False)
 
-    def to_internal_value(self, datos):
-        # El modo se fija al crear (plan P3): no es un campo editable, y se dice por qué.
-        if "modo_uso" in datos:
-            raise serializers.ValidationError({"modo_uso": [MENSAJE_MODO_FIJO]})
-        return super().to_internal_value(datos)
-
     def validate(self, datos):
         area = self.context["area"]
         validar_horario(datos.get("hora_apertura", area.hora_apertura), datos.get("hora_cierre", area.hora_cierre))
-        if area.modo_uso == ModoDeUso.INGRESO and "duracion_franja_minutos" in datos:
+        # Los campos se miden contra el modo en que queda el área, que puede ser otro.
+        modo = datos.get("modo_uso", area.modo_uso)
+        if modo == ModoDeUso.INGRESO and "duracion_franja_minutos" in datos:
             raise serializers.ValidationError({"duracion_franja_minutos": [MENSAJE_DURACION_SOLO_RESERVA]})
-        if area.modo_uso == ModoDeUso.RESERVA and "permanencia_maxima_minutos" in datos:
+        if modo == ModoDeUso.RESERVA and "permanencia_maxima_minutos" in datos:
             raise serializers.ValidationError({"permanencia_maxima_minutos": [MENSAJE_PERMANENCIA_SOLO_INGRESO]})
+        if modo != area.modo_uso:
+            if modo == ModoDeUso.INGRESO and "permanencia_maxima_minutos" not in datos:
+                raise serializers.ValidationError({"permanencia_maxima_minutos": [MENSAJE_PERMANENCIA_OBLIGATORIA]})
+            if modo == ModoDeUso.RESERVA and "duracion_franja_minutos" not in datos:
+                raise serializers.ValidationError({"duracion_franja_minutos": [MENSAJE_DURACION_OBLIGATORIA]})
         return datos
 
 

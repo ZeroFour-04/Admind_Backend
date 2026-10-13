@@ -354,8 +354,21 @@ def test_una_solicitud_valida_queda_apartada_y_se_avisa_a_la_administracion(
     assert f"Salón comunal el {MANANA_EN_LETRAS}" in aviso.cuerpo
 
 
-def test_secretaria_consulta_solicitudes_del_area_y_puede_aceptar_con_motivo(
-    torres, salon, pedro, lucia, apartamentos, administracion
+def decision_de(cliente, solicitud_id, **datos):
+    return cliente.post(f"/reservas/solicitudes/{solicitud_id}/decision/", datos, format="json")
+
+
+def descarte_de(cliente, solicitud_id, **datos):
+    return cliente.post(f"/reservas/solicitudes/{solicitud_id}/descarte/", datos, format="json")
+
+
+def avisos_de_la_decision(torres, solicitud_id):
+    with usar_conjunto(torres.id):
+        return list(Notificacion.objects.filter(origen="reserva.decision", referencia=solicitud_id))
+
+
+def test_secretaria_consulta_las_solicitudes_del_area_y_no_puede_aprobar_ni_rechazar(
+    torres, salon, pedro, apartamentos, administracion
 ):
     enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
     secretaria = cliente_para("secretaria@torres.com")
@@ -367,32 +380,51 @@ def test_secretaria_consulta_solicitudes_del_area_y_puede_aceptar_con_motivo(
     assert listado.json()[0]["residente"]["nombre"] == "Pedro Gómez"
     assert listado.json()[0]["motivo"] == "Cumpleaños"
 
-    respuesta = secretaria.post(
-        f"/reservas/solicitudes/{enviada['id']}/decision/",
-        {"decision": "RESERVADA", "motivo": "Aforo y horario verificados."},
-        format="json",
-    )
+    aprobar = decision_de(secretaria, enviada["id"], decision="RESERVADA", motivo="Aforo y horario verificados.")
+    rechazar = decision_de(secretaria, enviada["id"], decision="RECHAZADA", categoria="NO_DISPONIBLE")
 
+    assert (aprobar.status_code, rechazar.status_code) == (403, 403)
+    with usar_conjunto(torres.id):
+        assert Solicitud.objects.get(pk=enviada["id"]).estado == "APARTADA"
+
+
+def test_administracion_aprueba_con_motivo_y_el_residente_recibe_el_aviso(
+    torres, salon, pedro, lucia, apartamentos, administracion
+):
+    enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
+    andres = cliente_para("admin1@torres.com")
+
+    sin_motivo = decision_de(andres, enviada["id"], decision="RESERVADA", motivo="   ")
+    respuesta = decision_de(andres, enviada["id"], decision="RESERVADA", motivo="Aforo y horario verificados.")
+
+    assert sin_motivo.status_code == 400
     assert respuesta.status_code == 200
     assert (respuesta.json()["estado"], respuesta.json()["motivo_decision"]) == (
         "RESERVADA", "Aforo y horario verificados."
     )
+    assert respuesta.json()["categoria_rechazo"] == ""
     assert franjas(pedro, salon)["08:00"] == "propia"
     assert franjas(lucia, salon)["08:00"] == "reservada"
     with usar_conjunto(torres.id):
         guardada = Solicitud.objects.get(pk=enviada["id"])
         registro = Registro.objects.get(accion="reserva.aprobar", entidad_id=enviada["id"])
-    assert guardada.decidida_por.nombres == "Carlos"
+    assert guardada.decidida_por.nombres == "Andrés"
     assert guardada.decidida_en is not None
     assert registro.despues == {"estado": "RESERVADA", "motivo": "Aforo y horario verificados."}
+    (aviso,) = avisos_de_la_decision(torres, enviada["id"])
+    assert aviso.persona.nombres == "Pedro"
+    assert aviso.titulo == "Tu reserva fue aprobada"
+    assert f"Salón comunal el {MANANA_EN_LETRAS}" in aviso.cuerpo
+    assert "Andrés" not in aviso.cuerpo
 
 
 def test_el_detalle_de_solicitud_incluye_condiciones_de_renta_de_su_area(
     pedro, torres, salon, apartamentos, administracion
 ):
     condiciones = "No se permiten fiestas después de las 10 p. m."
-    salon.condiciones_alquiler = condiciones
-    salon.save(update_fields=["condiciones_alquiler"])
+    with usar_conjunto(torres.id):
+        salon.condiciones_alquiler = condiciones
+        salon.save(update_fields=["condiciones_alquiler"])
     solicitud = tomar(pedro, salon).json()
 
     respuesta = pedro.get(f"/reservas/solicitudes/{solicitud['id']}/")
@@ -401,29 +433,96 @@ def test_el_detalle_de_solicitud_incluye_condiciones_de_renta_de_su_area(
     assert respuesta.json()["area"]["condiciones_alquiler"] == condiciones
 
 
-def test_rechazar_solicitud_requiere_motivo_y_libera_la_franja(
+def test_rechazar_exige_categoria_y_con_otro_exige_el_texto(torres, salon, pedro, apartamentos, administracion):
+    enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
+    andres = cliente_para("admin1@torres.com")
+
+    sin_categoria = decision_de(andres, enviada["id"], decision="RECHAZADA", motivo="No se puede.")
+    otro_sin_texto = decision_de(andres, enviada["id"], decision="RECHAZADA", categoria="OTRO", motivo="  ")
+    causal_de_secretaria = decision_de(andres, enviada["id"], decision="RECHAZADA", categoria="DATOS_INCOMPLETOS")
+
+    assert sin_categoria.status_code == 400 and "categoria" in sin_categoria.json()
+    assert otro_sin_texto.status_code == 400 and "motivo" in otro_sin_texto.json()
+    assert causal_de_secretaria.status_code == 400 and "categoria" in causal_de_secretaria.json()
+    with usar_conjunto(torres.id):
+        assert Solicitud.objects.get(pk=enviada["id"]).estado == "APARTADA"
+    assert avisos_de_la_decision(torres, enviada["id"]) == []
+
+
+def test_rechazar_con_categoria_libera_la_franja_y_avisa_al_residente(
+    torres, salon, pedro, lucia, apartamentos, administracion
+):
+    enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
+    andres = cliente_para("admin1@torres.com")
+
+    rechazada = decision_de(andres, enviada["id"], decision="RECHAZADA", categoria="NO_DISPONIBLE")
+    con_otro = enviar(lucia, tomar(lucia, salon).json()["id"], apartamentos[1]).json()
+    otra = decision_de(andres, con_otro["id"], decision="RECHAZADA", categoria="OTRO", motivo="Hay obra ese día.")
+
+    assert rechazada.status_code == 200
+    assert (rechazada.json()["estado"], rechazada.json()["categoria_rechazo"], rechazada.json()["motivo_decision"]) == (
+        "RECHAZADA", "NO_DISPONIBLE", ""
+    )
+    assert rechazada.json()["categoria_rechazo_nombre"] == "El área no está disponible"
+    assert (otra.json()["categoria_rechazo"], otra.json()["motivo_decision"]) == ("OTRO", "Hay obra ese día.")
+    assert franjas(lucia, salon)["08:00"] == "libre"
+    with usar_conjunto(torres.id):
+        registro = Registro.objects.get(accion="reserva.rechazar", entidad_id=enviada["id"])
+    assert registro.despues == {"estado": "RECHAZADA", "motivo": "", "categoria": "NO_DISPONIBLE"}
+    (aviso,) = avisos_de_la_decision(torres, enviada["id"])
+    assert aviso.persona.nombres == "Pedro"
+    assert aviso.titulo == "Tu reserva fue rechazada"
+    assert "Motivo: El área no está disponible." in aviso.cuerpo
+
+
+def test_la_base_no_guarda_un_rechazo_sin_categoria(torres, salon, pedro, apartamentos, administracion):
+    enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
+
+    with usar_conjunto(torres.id), pytest.raises(IntegrityError), transaction.atomic():
+        Solicitud.objects.filter(pk=enviada["id"]).update(estado="RECHAZADA")
+
+
+def test_secretaria_descarta_con_causal_y_comentario_y_la_franja_queda_libre(
     torres, salon, pedro, lucia, apartamentos, administracion
 ):
     enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
     secretaria = cliente_para("secretaria@torres.com")
 
-    sin_motivo = secretaria.post(
-        f"/reservas/solicitudes/{enviada['id']}/decision/",
-        {"decision": "RECHAZADA", "motivo": "   "},
-        format="json",
-    )
-    rechazada = secretaria.post(
-        f"/reservas/solicitudes/{enviada['id']}/decision/",
-        {"decision": "RECHAZADA", "motivo": "No se adjuntó el soporte requerido."},
-        format="json",
+    respuesta = descarte_de(
+        secretaria, enviada["id"], causal="DATOS_INCOMPLETOS", comentario="Falta decir cuántas personas asisten."
     )
 
-    assert sin_motivo.status_code == 400
-    assert rechazada.status_code == 200
-    assert (rechazada.json()["estado"], rechazada.json()["motivo_decision"]) == (
-        "RECHAZADA", "No se adjuntó el soporte requerido."
-    )
+    assert respuesta.status_code == 200
+    assert (respuesta.json()["estado"], respuesta.json()["categoria_rechazo"]) == ("RECHAZADA", "DATOS_INCOMPLETOS")
+    assert respuesta.json()["motivo_decision"] == "Falta decir cuántas personas asisten."
     assert franjas(lucia, salon)["08:00"] == "libre"
+    with usar_conjunto(torres.id):
+        registro = Registro.objects.get(accion="solicitud.rechazar_formal", entidad_id=enviada["id"])
+        assert Solicitud.objects.get(pk=enviada["id"]).decidida_por.nombres == "Carlos"
+    assert registro.despues["categoria"] == "DATOS_INCOMPLETOS"
+    (aviso,) = avisos_de_la_decision(torres, enviada["id"])
+    assert aviso.titulo == "Tu reserva fue rechazada"
+    assert "Motivo: Datos incompletos. Falta decir cuántas personas asisten." in aviso.cuerpo
+    assert "Carlos" not in aviso.cuerpo
+
+
+def test_el_descarte_exige_causal_de_forma_y_comentario_y_es_solo_de_secretaria(
+    torres, salon, pedro, apartamentos, administracion
+):
+    enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
+    secretaria = cliente_para("secretaria@torres.com")
+    andres = cliente_para("admin1@torres.com")
+
+    sin_comentario = descarte_de(secretaria, enviada["id"], causal="SOLICITUD_DUPLICADA", comentario="  ")
+    con_otro = descarte_de(secretaria, enviada["id"], causal="OTRO", comentario="No me parece.")
+    de_administracion = descarte_de(andres, enviada["id"], causal="SOLICITUD_DUPLICADA", comentario="Ya hay otra.")
+    primera = descarte_de(secretaria, enviada["id"], causal="SOLICITUD_DUPLICADA", comentario="Ya hay otra.")
+    repetida = descarte_de(secretaria, enviada["id"], causal="SOLICITUD_DUPLICADA", comentario="Ya hay otra.")
+
+    assert sin_comentario.status_code == 400 and "comentario" in sin_comentario.json()
+    assert con_otro.status_code == 400 and "causal" in con_otro.json()
+    assert de_administracion.status_code == 403
+    assert (primera.status_code, repetida.status_code) == (200, 409)
 
 
 def test_no_se_puede_decidir_dos_veces_ni_consultar_solicitudes_de_otro_area(
@@ -431,35 +530,27 @@ def test_no_se_puede_decidir_dos_veces_ni_consultar_solicitudes_de_otro_area(
 ):
     enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
     secretaria = cliente_para("secretaria@torres.com")
+    andres = cliente_para("admin1@torres.com")
     otra_area = crear_area(torres, "Piscina")
 
     assert secretaria.get(f"/reservas/areas/{otra_area.id}/solicitudes/").json() == []
-    decision = {"decision": "RESERVADA", "motivo": "Aprobada."}
-    assert secretaria.post(f"/reservas/solicitudes/{enviada['id']}/decision/", decision, format="json").status_code == 200
-    repetida = secretaria.post(
-        f"/reservas/solicitudes/{enviada['id']}/decision/",
-        {"decision": "RECHAZADA", "motivo": "Cambio de opinión."},
-        format="json",
-    )
-    assert repetida.status_code == 409
+    assert decision_de(andres, enviada["id"], decision="RESERVADA", motivo="Aprobada.").status_code == 200
+    repetida = decision_de(andres, enviada["id"], decision="RECHAZADA", categoria="OTRO", motivo="Cambio de opinión.")
+    descarte = descarte_de(secretaria, enviada["id"], causal="DATOS_INCOMPLETOS", comentario="Tarde.")
+    assert (repetida.status_code, descarte.status_code) == (409, 409)
 
 
 def test_bandeja_general_lista_solicitudes_enviadas_aceptadas_y_rechazadas(
     torres, salon, pedro, lucia, apartamentos, administracion
 ):
     secretaria = cliente_para("secretaria@torres.com")
+    andres = cliente_para("admin1@torres.com")
     aceptada = enviar(pedro, tomar(pedro, salon, "08:00").json()["id"], apartamentos[0]).json()
-    assert secretaria.post(
-        f"/reservas/solicitudes/{aceptada['id']}/decision/",
-        {"decision": "RESERVADA", "motivo": "Horario aprobado."},
-        format="json",
-    ).status_code == 200
+    assert decision_de(andres, aceptada["id"], decision="RESERVADA", motivo="Horario aprobado.").status_code == 200
 
     enviada = enviar(lucia, tomar(lucia, salon, "12:00").json()["id"], apartamentos[1]).json()
-    assert secretaria.post(
-        f"/reservas/solicitudes/{enviada['id']}/decision/",
-        {"decision": "RECHAZADA", "motivo": "Falta autorización."},
-        format="json",
+    assert decision_de(
+        andres, enviada["id"], decision="RECHAZADA", categoria="OTRO", motivo="Falta autorización."
     ).status_code == 200
     otra_enviada = enviar(pedro, tomar(pedro, salon, "16:00").json()["id"], apartamentos[0])
     assert otra_enviada.status_code == 200
@@ -473,6 +564,49 @@ def test_bandeja_general_lista_solicitudes_enviadas_aceptadas_y_rechazadas(
     assert por_id[enviada["id"]]["estado"] == "RECHAZADA"
     assert por_id[enviada["id"]]["motivo_decision"] == "Falta autorización."
     assert por_id[otra_enviada.json()["id"]]["estado"] == "APARTADA"
+    # La que espera decisión va primero, aunque sea la última que llegó.
+    assert respuesta.json()[0]["id"] == otra_enviada.json()["id"]
+
+
+def test_la_bandeja_trae_primero_la_solicitud_que_mas_lleva_esperando(
+    torres, salon, pedro, lucia, apartamentos, administracion
+):
+    """El orden es el de llegada, no el de la franja pedida ni el más reciente (HU-14)."""
+    primera = enviar(pedro, tomar(pedro, salon, "16:00").json()["id"], apartamentos[0]).json()
+    segunda = enviar(lucia, tomar(lucia, salon, "08:00").json()["id"], apartamentos[1]).json()
+    andres = cliente_para("admin1@torres.com")
+
+    bandeja = [item["id"] for item in andres.get("/reservas/bandeja/").json()]
+    del_area = [item["id"] for item in andres.get(f"/reservas/areas/{salon.id}/solicitudes/").json()]
+    decision_de(andres, primera["id"], decision="RESERVADA", motivo="Aprobada.")
+    despues = [item["id"] for item in andres.get("/reservas/bandeja/").json()]
+
+    assert bandeja == del_area == [primera["id"], segunda["id"]]
+    assert despues == [segunda["id"], primera["id"]]
+
+
+def test_la_bandeja_es_de_quien_entra_al_dashboard_y_no_de_vigilancia(torres, salon, pedro, apartamentos, administracion):
+    enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0])
+    crear_usuario("vigilante@torres.com", "Víctor", Rol.VIGILANCIA, torres)
+
+    assert cliente_para("vigilante@torres.com").get("/reservas/bandeja/").status_code == 403
+    assert pedro.get("/reservas/bandeja/").status_code == 403
+    assert cliente_para("secretaria@torres.com").get("/reservas/bandeja/").status_code == 200
+
+
+def test_una_reserva_aprobada_cuya_franja_ya_paso_sale_como_completada(
+    torres, salon, pedro, apartamentos, administracion
+):
+    enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
+    andres = cliente_para("admin1@torres.com")
+    aprobada = decision_de(andres, enviada["id"], decision="RESERVADA", motivo="Aprobada.").json()
+
+    with usar_conjunto(torres.id):
+        Solicitud.objects.filter(pk=enviada["id"]).update(fecha=timezone.localdate() - timedelta(days=1))
+    (en_bandeja,) = andres.get("/reservas/bandeja/").json()
+
+    assert aprobada["completada"] is False
+    assert (en_bandeja["estado"], en_bandeja["completada"]) == ("RESERVADA", True)
 
 
 def test_si_incumple_tres_reglas_ve_los_tres_motivos_y_se_libera_el_bloqueo(
@@ -674,11 +808,11 @@ def subir_comprobante(cliente, solicitud_id, archivo):
 
 
 def decidir(cliente, solicitud_id, decision):
-    return cliente.post(
-        f"/reservas/solicitudes/{solicitud_id}/decision/",
-        {"decision": decision, "motivo": "Revisada."},
-        format="json",
-    )
+    """Decide Administración: la Secretaría no aprueba ni rechaza de fondo."""
+    datos = {"decision": decision, "motivo": "Revisada."}
+    if decision == "RECHAZADA":
+        datos["categoria"] = "OTRO"
+    return cliente.post(f"/reservas/solicitudes/{solicitud_id}/decision/", datos, format="json")
 
 
 @pytest.fixture
@@ -723,7 +857,7 @@ def test_administracion_declara_el_pago_y_queda_quien_lo_declaro_y_cuando(andres
 
 
 def test_tambien_se_declara_el_pago_de_una_reserva_ya_aprobada(andres, carlos, torres, apartada):
-    assert decidir(carlos, apartada["id"], "RESERVADA").status_code == 200
+    assert decidir(andres, apartada["id"], "RESERVADA").status_code == 200
 
     respuesta = declarar_pago(andres, apartada["id"])
 
@@ -735,7 +869,7 @@ def test_tambien_se_declara_el_pago_de_una_reserva_ya_aprobada(andres, carlos, t
 def test_aprobar_no_depende_del_pago_y_aprobar_no_borra_la_declaracion(andres, carlos, torres, apartada):
     declarar_pago(andres, apartada["id"])
 
-    decision = decidir(carlos, apartada["id"], "RESERVADA")
+    decision = decidir(andres, apartada["id"], "RESERVADA")
 
     assert decision.status_code == 200
     assert decision.json()["pago"]["declarado"] is True
@@ -762,7 +896,7 @@ def test_secretaria_ve_el_pago_pero_no_lo_declara(carlos, torres, salon, apartad
 def test_solo_se_declara_sobre_una_solicitud_apartada_o_reservada(andres, carlos, pedro, lucia, salon, apartamentos, apartada):
     en_tramite = tomar(lucia, salon, "12:00").json()
     rechazada = enviar(pedro, tomar(pedro, salon, "16:00").json()["id"], apartamentos[0]).json()
-    assert decidir(carlos, rechazada["id"], "RECHAZADA").status_code == 200
+    assert decidir(andres, rechazada["id"], "RECHAZADA").status_code == 200
 
     sobre_tramite = declarar_pago(andres, en_tramite["id"])
     sobre_rechazada = declarar_pago(andres, rechazada["id"])
@@ -781,7 +915,7 @@ def test_solo_se_declara_sobre_una_solicitud_apartada_o_reservada(andres, carlos
 def test_una_solicitud_con_pago_declarado_que_se_rechaza_conserva_la_declaracion(andres, carlos, torres, apartada):
     declarar_pago(andres, apartada["id"])
 
-    rechazo = decidir(carlos, apartada["id"], "RECHAZADA")
+    rechazo = decidir(andres, apartada["id"], "RECHAZADA")
 
     assert rechazo.status_code == 200
     guardada = solicitud(torres, apartada["id"])
@@ -919,7 +1053,7 @@ def test_con_el_pago_declarado_el_residente_ya_no_sube_y_el_cuarto_comprobante_s
 
 
 def test_una_solicitud_que_ya_no_esta_apartada_ni_reservada_no_admite_comprobantes(pedro, andres, carlos, apartada):
-    assert decidir(carlos, apartada["id"], "RECHAZADA").status_code == 200
+    assert decidir(andres, apartada["id"], "RECHAZADA").status_code == 200
 
     respuesta = subir_comprobante(pedro, apartada["id"], subir("pago.pdf", PDF))
 

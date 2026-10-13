@@ -14,6 +14,7 @@ from apps.reservas.serializers import (
     ConsultarFranjasSerializer,
     DecisionDeSolicitudSerializer,
     DeclararPagoSerializer,
+    DescarteDeSolicitudSerializer,
     DetalleDeSolicitudSerializer,
     EnviarSolicitudSerializer,
     FranjaSerializer,
@@ -26,6 +27,7 @@ from apps.reservas.serializers import (
 )
 
 MENSAJE_NO_EN_TRAMITE = {"detail": "Esta solicitud ya no está en trámite."}
+MENSAJE_YA_DECIDIDA = {"detail": "Solo se pueden decidir solicitudes que estén apartadas."}
 EXTENSION_POR_TIPO = {"application/pdf": "pdf", "image/png": "png", "image/jpeg": "jpg"}
 
 
@@ -144,7 +146,8 @@ class SolicitudesDeAreaView(VistaDeConjunto):
 
 class BandejaDeSolicitudesView(VistaDeConjunto):
     def get(self, request):
-        exigir_permiso(request, "reserva.ver_todas", "reserva.aprobar", "reserva.rechazar")
+        """La pestaña Reservas del dashboard: Administración y Secretaría. Vigilancia no entra."""
+        exigir_permiso(request, "solicitud.bandeja_ver")
         return Response(
             SolicitudParaAdministrarSerializer(servicios.solicitudes_para_bandeja(), many=True).data
         )
@@ -164,14 +167,32 @@ class DecidirSolicitudView(VistaDeConjunto):
                 solicitud_id,
                 decision,
                 datos.validated_data["motivo"],
+                datos.validated_data["categoria"],
             )
         except servicios.SolicitudNoEncontrada:
             raise NotFound()
         except servicios.DecisionNoPermitida:
-            return Response(
-                {"detail": "Solo se pueden decidir solicitudes que estén apartadas."},
-                status=status.HTTP_409_CONFLICT,
+            return Response(MENSAJE_YA_DECIDIDA, status=status.HTTP_409_CONFLICT)
+        return Response(SolicitudParaAdministrarSerializer(solicitud).data)
+
+
+class DescartarSolicitudView(VistaDeConjunto):
+    def post(self, request, solicitud_id):
+        """Secretaría descarta por causal formal. No aprueba: esa operación es de Administración."""
+        exigir_permiso(request, "solicitud.rechazar_formal")
+        datos = DescarteDeSolicitudSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        try:
+            solicitud = servicios.descartar_solicitud(
+                request.user.persona,
+                solicitud_id,
+                datos.validated_data["causal"],
+                datos.validated_data["comentario"],
             )
+        except servicios.SolicitudNoEncontrada:
+            raise NotFound()
+        except servicios.DecisionNoPermitida:
+            return Response(MENSAJE_YA_DECIDIDA, status=status.HTTP_409_CONFLICT)
         return Response(SolicitudParaAdministrarSerializer(solicitud).data)
 
 
@@ -324,10 +345,11 @@ class ComprobanteDeSolicitudView(VistaDeConjunto):
         """El archivo del comprobante, solo por esta ruta. Quien no puede verlo recibe 404, no 403 (plan P8)."""
         # `reserva.ver_todas` entra para que Vigilancia reciba 404 y no 403: no se le confirma que existe.
         exigir_permiso(
-            request, "reserva.solicitar", "reserva.ver_todas", "reserva.aprobar", "reserva.declarar_pago"
+            request, "reserva.solicitar", "reserva.ver_todas", "solicitud.bandeja_ver", "reserva.declarar_pago"
         )
+        # Quien entra al dashboard los ve aunque no apruebe: es el caso de Secretaría.
         puede_gestionar = tiene_permiso_en_conjunto(request, "reserva.declarar_pago") or tiene_permiso_en_conjunto(
-            request, "reserva.aprobar"
+            request, "solicitud.bandeja_ver"
         )
         comprobante = pago.comprobante_para(request.user.persona, puede_gestionar, comprobante_id)
         if comprobante is None:

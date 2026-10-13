@@ -10,6 +10,7 @@ from rest_framework.views import APIView
 
 from apps.anuncios.models import Anuncio, FotoDeAnuncio
 from apps.auditoria.models import Registro
+from apps.casos.models import Caso, FotoDeCaso
 from apps.areas.models import Area as AreaComun
 from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.comun.aislamiento.vistas import VistaDeConjunto
@@ -22,7 +23,7 @@ from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
 from apps.reglas.models import Regla
-from apps.reservas.models import ComprobanteDePago, EstadoSolicitud, Solicitud
+from apps.reservas.models import Campana, ComprobanteDePago, EstadoSolicitud, Solicitud
 from apps.unidades.models import Agrupacion, TipoVinculo, Unidad, VinculoUnidad
 from apps.pagos.models import Comprobante, PagoDeAdministracion
 from apps.parqueaderos.models import Parqueadero
@@ -617,7 +618,88 @@ def desactivar_area_comun(otro_conjunto):
     return "post", reverse("area-desactivar", kwargs={"area_id": area.pk}), intacto
 
 
+def listado_de_la_bandeja(otro_conjunto):
+    return reverse("solicitudes-bandeja"), str(solicitud_apartada_de(otro_conjunto).pk)
+
+
+def solicitudes_de_area_ajena(otro_conjunto):
+    return reverse("solicitudes-area", kwargs={"area_id": area_comun_de(otro_conjunto).pk})
+
+
+def cerrar_solicitud_en(nombre_de_ruta):
+    """Decidir o descartar una solicitud apartada de otro conjunto: tiene que seguir apartada."""
+
+    def accion(otro_conjunto):
+        solicitud = solicitud_apartada_de(otro_conjunto)
+
+        def intacto():
+            with usar_conjunto(otro_conjunto.id):
+                return Solicitud.objects.get(pk=solicitud.pk).estado == EstadoSolicitud.APARTADA
+
+        return "post", reverse(nombre_de_ruta, kwargs={"solicitud_id": solicitud.pk}), intacto
+
+    return accion
+
+
+def marcar_campana_en(otro_conjunto):
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return not Campana.objects.exists()
+
+    return "post", reverse("campanas"), intacto
+
+
+def retirar_usuario_en(otro_conjunto):
+    usuario = usuario_de(otro_conjunto)
+
+    def intacto():
+        roles = Asignacion.objects.filter(persona=usuario.persona).values_list("rol", "vigencia_hasta")
+        return list(roles) == [("residente", None)]
+
+    return "post", reverse("usuario-eliminar", kwargs={"usuario_id": usuario.pk}), intacto
+
+
+def caso_de(otro_conjunto):
+    autor = usuario_de(otro_conjunto).persona
+    with usar_conjunto(otro_conjunto.id):
+        return Caso.objects.create(titulo="Fuga de agua", cuerpo="Hay una fuga en el pasillo.", autor=autor)
+
+
+def detalle_de_caso(otro_conjunto):
+    return reverse("caso-detalle", kwargs={"caso_id": caso_de(otro_conjunto).pk})
+
+
+def foto_de_caso(otro_conjunto):
+    caso = caso_de(otro_conjunto)
+    with usar_conjunto(otro_conjunto.id):
+        foto = FotoDeCaso.objects.create(caso=caso, contenido=b"\x89PNG\r\n\x1a\n", tipo="image/png")
+    return reverse("caso-foto", kwargs={"caso_id": caso.pk, "foto_id": foto.pk})
+
+
+def listado_de_casos(otro_conjunto):
+    return reverse("casos"), str(caso_de(otro_conjunto).pk)
+
+
+def mover_caso_en(nombre_de_ruta):
+    """Cualquier transición sobre un caso de otro conjunto: tiene que quedar como estaba."""
+
+    def accion(otro_conjunto):
+        caso = caso_de(otro_conjunto)
+
+        def intacto():
+            with usar_conjunto(otro_conjunto.id):
+                guardado = Caso.objects.get(pk=caso.pk)
+            return (guardado.estado, guardado.prioridad) == ("ABIERTO", "NORMAL")
+
+        return "post", reverse(nombre_de_ruta, kwargs={"caso_id": caso.pk}), intacto
+
+    return accion
+
+
 DETALLES = {
+    "solicitudes-area": solicitudes_de_area_ajena,
+    "caso-detalle": detalle_de_caso,
+    "caso-foto": foto_de_caso,
     "pruebas-area-detalle": detalle_de_area,
     "usuario-detalle": detalle_de_usuario,
     "anuncio-detalle": detalle_de_anuncio,
@@ -632,6 +714,8 @@ DETALLES = {
     "pago-comprobante": comprobante_de_pago_ajeno,
 }
 LISTADOS = {
+    "solicitudes-bandeja": listado_de_la_bandeja,
+    "casos": listado_de_casos,
     "pruebas-areas": listado_de_areas,
     "usuarios": listado_de_usuarios,
     "conjunto-actual": resumen_del_conjunto,
@@ -654,6 +738,16 @@ LISTADOS = {
 }
 # Rutas de conjunto sin identificador ni listado: actúan sobre el conjunto activo.
 ACCIONES = {
+    "solicitud-decision": cerrar_solicitud_en("solicitud-decision"),
+    "solicitud-descarte": cerrar_solicitud_en("solicitud-descarte"),
+    "campanas": marcar_campana_en,
+    "usuario-eliminar": retirar_usuario_en,
+    "caso-tomar": mover_caso_en("caso-tomar"),
+    "caso-prioridad": mover_caso_en("caso-prioridad"),
+    "caso-redirigir": mover_caso_en("caso-redirigir"),
+    "caso-descartar": mover_caso_en("caso-descartar"),
+    "caso-responder": mover_caso_en("caso-responder"),
+    "caso-rechazar": mover_caso_en("caso-rechazar"),
     "conjunto-activar": activar_conjunto,
     "conjunto-logo": logo_del_conjunto,
     "area-desactivar": desactivar_area_comun,
@@ -685,6 +779,8 @@ RUTAS_SIN_CONJUNTO = {
     "cerrar-sesion",
     "conjuntos-disponibles",
     "conjunto-activo",
+    # El perfil es de quien pregunta: no recibe ningún identificador de otro conjunto.
+    "usuario-perfil",
     # El Superusuario crea conjuntos sin tener uno activo (HU-03).
     "conjunto-crear",
     # El selector muestra logos de conjuntos que no son el activo; se revisa el acceso a cada uno (HU-21).

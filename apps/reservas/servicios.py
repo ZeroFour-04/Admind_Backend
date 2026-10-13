@@ -10,7 +10,7 @@ hasta HU-33 (Sprint 6), y sin esto los Sprints 3 y 4 no se podrían demostrar.
 from datetime import datetime, timedelta
 
 from django.db import transaction
-from django.db.models import Prefetch
+from django.db.models import Case, Prefetch, Value, When
 from django.utils import timezone
 from django.utils.formats import date_format
 
@@ -24,7 +24,17 @@ from apps.permisos.models import Asignacion
 from apps.reglas.catalogo import TipoDeRegla
 from apps.reglas.evaluador import evaluar
 from apps.reglas.servicios import reglas_vigentes
-from apps.reservas.models import BLOQUEANTES, Campana, ComprobanteDePago, EstadoSolicitud, MotivoLiberacion, Solicitud
+from apps.reservas.models import (
+    BLOQUEANTES,
+    CATEGORIAS_DE_FONDO,
+    CAUSALES_DE_FORMA,
+    Campana,
+    CategoriaDeRechazo,
+    ComprobanteDePago,
+    EstadoSolicitud,
+    MotivoLiberacion,
+    Solicitud,
+)
 from apps.unidades.models import Unidad
 from apps.unidades.servicios import unidades_para_solicitar
 
@@ -270,9 +280,8 @@ def solicitudes_para_area(area):
             estado__in=[EstadoSolicitud.APARTADA, EstadoSolicitud.RESERVADA, EstadoSolicitud.RECHAZADA],
         )
         .select_related("area", "persona", "unidad", "decidida_por", "pago_declarado_por")
-        .order_by("-creada_en")
     )
-    return con_comprobantes(consulta)
+    return con_comprobantes(por_antiguedad(consulta))
 
 
 def reservas_por_cumplir(area):
@@ -291,19 +300,80 @@ def solicitudes_para_bandeja():
             estado__in=[EstadoSolicitud.APARTADA, EstadoSolicitud.RESERVADA, EstadoSolicitud.RECHAZADA]
         )
         .select_related("area", "persona", "unidad", "decidida_por", "pago_declarado_por")
-        .order_by("-creada_en")
     )
-    return con_comprobantes(consulta)
+    return con_comprobantes(por_antiguedad(consulta))
 
 
-def decidir_solicitud(actor, solicitud_id, decision, motivo):
-    """Acepta o rechaza una solicitud enviada y registra la decisión en auditoría."""
+def por_antiguedad(consulta):
+    """Primero las que esperan decisión y, entre ellas, la que más lleva esperando (HU-14).
+
+    Entre reservas no hay prioridad: el orden de llegada es la promesa de equidad sobre la franja.
+    """
+    decidida = Case(When(estado=EstadoSolicitud.APARTADA, then=Value(0)), default=Value(1))
+    return consulta.annotate(decidida=decidida).order_by("decidida", "enviada_en", "creada_en")
+
+
+def completada(solicitud):
+    """Una reserva aprobada cuya franja ya terminó. Se calcula al consultar: ningún proceso la marca."""
+    return (
+        solicitud.estado == EstadoSolicitud.RESERVADA
+        and inicio_de(solicitud.fecha, solicitud.hora_fin) <= timezone.now()
+    )
+
+
+def avisar_de_la_decision(solicitud):
+    """A quien hizo la solicitud, por la aplicación y por correo. No dice quién decidió."""
+    franja = (
+        f"{solicitud.area.nombre} el {dia_en_letras(solicitud)}, de {solicitud.hora_inicio:%H:%M} a "
+        f"{solicitud.hora_fin:%H:%M}."
+    )
+    if solicitud.estado == EstadoSolicitud.RESERVADA:
+        titulo = "Tu reserva fue aprobada"
+        cuerpo = f"{franja} {solicitud.motivo_decision}".strip()
+    else:
+        titulo = "Tu reserva fue rechazada"
+        cuerpo = f"{franja} Motivo: {solicitud.get_categoria_rechazo_display()}. {solicitud.motivo_decision}".strip()
+    notificar(Aviso(titulo, cuerpo, origen="reserva.decision", referencia=solicitud.id), [solicitud.persona_id])
+
+
+def decidir_solicitud(actor, solicitud_id, decision, motivo, categoria=""):
+    """Administración acepta o rechaza una solicitud enviada: decide el fondo.
+
+    Aprobar exige motivo (las condiciones del alquiler). Rechazar exige categoría, y la categoría
+    `OTRO` exige el texto.
+    """
     if decision not in (EstadoSolicitud.RESERVADA, EstadoSolicitud.RECHAZADA):
         raise ValueError("La decisión debe ser RESERVADA o RECHAZADA.")
     motivo = motivo.strip()
-    if not motivo:
-        raise ValueError("El motivo de la decisión es obligatorio.")
+    if decision == EstadoSolicitud.RESERVADA:
+        if not motivo:
+            raise ValueError("El motivo de la decisión es obligatorio.")
+        return _cerrar(actor, solicitud_id, decision, "reserva.aprobar", motivo)
+    if categoria not in CATEGORIAS_DE_FONDO:
+        raise ValueError("El rechazo lleva una categoría de la lista.")
+    if categoria == CategoriaDeRechazo.OTRO and not motivo:
+        raise ValueError("Con la categoría «Otro motivo» hay que escribir cuál.")
+    return _cerrar(actor, solicitud_id, decision, "reserva.rechazar", motivo, categoria)
 
+
+def descartar_solicitud(actor, solicitud_id, causal, comentario):
+    """Secretaría descarta una solicitud que no está en condiciones de tramitarse: decide la forma.
+
+    Causal de lista cerrada, sin «otro», y comentario que el residente va a leer. Es terminal: la
+    franja queda libre y quien solicitó vuelve a solicitar.
+    """
+    comentario = comentario.strip()
+    if causal not in CAUSALES_DE_FORMA:
+        raise ValueError("El descarte lleva una causal de la lista.")
+    if not comentario:
+        raise ValueError("El descarte lleva un comentario para el residente.")
+    return _cerrar(
+        actor, solicitud_id, EstadoSolicitud.RECHAZADA, "solicitud.rechazar_formal", comentario, causal
+    )
+
+
+def _cerrar(actor, solicitud_id, decision, accion, motivo, categoria=""):
+    """Bloquea la fila, comprueba que siga apartada, escribe, audita y avisa, en una transacción."""
     with transaction.atomic():
         solicitud = (
             Solicitud.objects.select_for_update()
@@ -319,17 +389,18 @@ def decidir_solicitud(actor, solicitud_id, decision, motivo):
         estado_anterior = solicitud.estado
         solicitud.estado = decision
         solicitud.motivo_decision = motivo
+        solicitud.categoria_rechazo = categoria
         solicitud.decidida_por = actor
         solicitud.decidida_en = timezone.now()
-        solicitud.save(update_fields=["estado", "motivo_decision", "decidida_por", "decidida_en"])
-        auditoria.registrar(
-            actor,
-            "reserva.aprobar" if decision == EstadoSolicitud.RESERVADA else "reserva.rechazar",
-            "Solicitud",
-            solicitud.id,
-            antes={"estado": estado_anterior},
-            despues={"estado": decision, "motivo": motivo},
+        solicitud.save(
+            update_fields=["estado", "motivo_decision", "categoria_rechazo", "decidida_por", "decidida_en"]
         )
+        despues = {"estado": decision, "motivo": motivo}
+        if categoria:
+            despues["categoria"] = categoria
+        auditoria.registrar(actor, accion, "Solicitud", solicitud.id, antes={"estado": estado_anterior}, despues=despues)
+        # El correo sale cuando la transacción se confirma: si la decisión se deshace, no llega.
+        avisar_de_la_decision(solicitud)
         if decision == EstadoSolicitud.RECHAZADA:
             notificar_disponibilidad(solicitud.area, solicitud.fecha, solicitud.hora_inicio, solicitud.hora_fin)
     return solicitud

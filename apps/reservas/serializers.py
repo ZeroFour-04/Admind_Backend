@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from apps.reservas import servicios
-from apps.reservas.models import Campana, ComprobanteDePago
+from apps.reservas.models import CATEGORIAS_DE_FONDO, CAUSALES_DE_FORMA, Campana, CategoriaDeRechazo, ComprobanteDePago
 from apps.unidades.servicios import unidades_para_solicitar
 
 _FECHA = serializers.DateTimeField()
@@ -88,9 +88,36 @@ class RetirarPagoSerializer(serializers.Serializer):
     motivo = serializers.CharField(max_length=1000, trim_whitespace=True)
 
 
+def _opciones(categorias):
+    return [(categoria.value, categoria.label) for categoria in categorias]
+
+
 class DecisionDeSolicitudSerializer(serializers.Serializer):
+    """La decisión de fondo. Qué campo es obligatorio depende de la decisión, y eso se ve en la petición."""
+
     decision = serializers.ChoiceField(choices=("RESERVADA", "RECHAZADA"))
-    motivo = serializers.CharField(max_length=1000, trim_whitespace=True)
+    motivo = serializers.CharField(max_length=1000, trim_whitespace=True, required=False, allow_blank=True, default="")
+    categoria = serializers.ChoiceField(
+        choices=_opciones(CATEGORIAS_DE_FONDO), required=False, allow_blank=True, default=""
+    )
+
+    def validate(self, datos):
+        if datos["decision"] == "RESERVADA":
+            if not datos["motivo"]:
+                raise serializers.ValidationError({"motivo": ["Escribe el motivo o las condiciones de la aprobación."]})
+            datos["categoria"] = ""
+        elif not datos["categoria"]:
+            raise serializers.ValidationError({"categoria": ["Elige el motivo del rechazo."]})
+        elif datos["categoria"] == CategoriaDeRechazo.OTRO and not datos["motivo"]:
+            raise serializers.ValidationError({"motivo": ["Con «Otro motivo» hay que escribir cuál."]})
+        return datos
+
+
+class DescarteDeSolicitudSerializer(serializers.Serializer):
+    """El descarte de Secretaría: causal de lista cerrada y comentario para el residente, los dos obligatorios."""
+
+    causal = serializers.ChoiceField(choices=_opciones(CAUSALES_DE_FORMA))
+    comentario = serializers.CharField(max_length=1000, trim_whitespace=True)
 
 
 class SolicitudSerializer(serializers.Serializer):
@@ -114,7 +141,11 @@ class SolicitudSerializer(serializers.Serializer):
     evaluacion = serializers.JSONField()
     evaluada_en = serializers.DateTimeField()
     motivo_decision = serializers.CharField()
+    categoria_rechazo = serializers.CharField()
+    categoria_rechazo_nombre = serializers.CharField(source="get_categoria_rechazo_display")
     decidida_en = serializers.DateTimeField(allow_null=True)
+    # Aprobada y con la franja ya terminada. No es un estado guardado.
+    completada = serializers.SerializerMethodField()
     # Si el pago está declarado y con qué comprobantes. Sin el nombre de quien lo declaró (plan P9).
     pago = serializers.SerializerMethodField()
 
@@ -150,6 +181,9 @@ class SolicitudSerializer(serializers.Serializer):
             "nombre": solicitud.area.nombre,
             "condiciones_alquiler": solicitud.area.condiciones_alquiler,
         }
+
+    def get_completada(self, solicitud):
+        return servicios.completada(solicitud)
 
     def get_segundos_restantes(self, solicitud):
         return servicios.segundos_restantes(solicitud)

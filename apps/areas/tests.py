@@ -373,7 +373,13 @@ def test_pasar_a_ingreso_retira_las_reglas_de_reserva_y_cuenta_las_reservas_que_
             **franja,
         )
         Solicitud.objects.create(
-            area=area, persona=autor, unidad=unidad, fecha=manana, estado=EstadoSolicitud.RECHAZADA, **franja
+            area=area,
+            persona=autor,
+            unidad=unidad,
+            fecha=manana,
+            estado=EstadoSolicitud.RECHAZADA,
+            categoria_rechazo="OTRO",
+            **franja,
         )
 
     respuesta = admin.patch(

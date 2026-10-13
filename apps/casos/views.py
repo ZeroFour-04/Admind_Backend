@@ -1,29 +1,47 @@
+"""Casos del conjunto activo (HU-29). Cada vista valida, exige su permiso y llama al servicio."""
 from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
 from apps.casos import servicios
-from apps.casos.serializers import CasoSerializer, CrearCasoSerializer, RechazarCasoSerializer
+from apps.casos.serializers import (
+    CasoParaGestionSerializer,
+    CasoSerializer,
+    ConsultarCasosSerializer,
+    CrearCasoSerializer,
+    DescartarCasoSerializer,
+    PriorizarCasoSerializer,
+    RechazarCasoSerializer,
+    RedirigirCasoSerializer,
+    ResponderCasoSerializer,
+)
 from apps.comun.aislamiento.vistas import VistaDeConjunto
-from apps.permisos.servicios import es_superusuario
-from apps.permisos.servicios import permisos_efectivos
-from apps.permisos.views import exigir_permiso
+from apps.permisos.views import exigir_permiso, tiene_permiso_en_conjunto
 
 TIPOS_DE_FOTO = {"image/png", "image/jpeg", "image/webp"}
+MENSAJE_YA_GESTIONADO = {"detail": "El caso ya fue gestionado."}
+
+
+def ve_todos(request):
+    """Gestión ve todos los casos del conjunto; quien solo los abre, los suyos."""
+    return tiene_permiso_en_conjunto(request, "caso.ver_todos")
+
+
+def serializar(request, caso):
+    serializer = CasoParaGestionSerializer if ve_todos(request) else CasoSerializer
+    return serializer(caso).data
 
 
 class CasosView(VistaDeConjunto):
     def get(self, request):
-        exigir_permiso(request, "caso.crear", "caso.ver_todos", "caso.responder")
-        permisos = permisos_efectivos(request.user.persona, request.auth.conjunto_activo_id)
-        if es_superusuario(request.user.persona):
-            casos = servicios.casos_de_todo_el_conjunto()
-        elif "caso.responder" in permisos:
-            casos = servicios.casos_redirigidos_a_administracion()
-        else:
-            casos = servicios.casos_visibles(request.user.persona, "caso.ver_todos" in permisos)
-        return Response(CasoSerializer(casos, many=True).data)
+        exigir_permiso(request, "caso.crear", "caso.ver_todos")
+        if not ve_todos(request):
+            return Response(CasoSerializer(servicios.casos_de(request.user.persona), many=True).data)
+        consulta = ConsultarCasosSerializer(data=request.query_params)
+        consulta.is_valid(raise_exception=True)
+        casos = servicios.casos_para_bandeja(**consulta.validated_data)
+        return Response(CasoParaGestionSerializer(casos, many=True).data)
 
     def post(self, request):
         exigir_permiso(request, "caso.crear")
@@ -44,37 +62,95 @@ class CasosView(VistaDeConjunto):
         return Response(CasoSerializer(caso).data, status=status.HTTP_201_CREATED)
 
 
-class GestionarCasoView(VistaDeConjunto):
-    def post(self, request, caso_id, accion):
-        exigir_permiso(request, "caso.gestionar")
-        if accion == "rechazar":
-            datos = RechazarCasoSerializer(data=request.data)
-            datos.is_valid(raise_exception=True)
-            try:
-                caso = servicios.rechazar(caso_id, datos.validated_data["motivo"])
-            except servicios.CasoNoGestionable:
-                return Response(
-                    {"detail": "El caso ya fue gestionado."},
-                    status=status.HTTP_409_CONFLICT,
-                )
-        else:
-            try:
-                caso = servicios.redirigir(caso_id)
-            except servicios.CasoNoGestionable:
-                return Response(
-                    {"detail": "El caso ya fue gestionado."},
-                    status=status.HTTP_409_CONFLICT,
-                )
+class DetalleDeCasoView(VistaDeConjunto):
+    def get(self, request, caso_id):
+        """El de otra persona o de otro conjunto responde 404: no se confirma que existe."""
+        exigir_permiso(request, "caso.crear", "caso.ver_todos")
+        persona = None if ve_todos(request) else request.user.persona
+        caso = servicios.detalle(caso_id, persona)
         if caso is None:
             raise NotFound()
-        return Response(CasoSerializer(caso).data)
+        return Response(serializar(request, caso))
+
+
+class AccionSobreCasoView(VistaDeConjunto):
+    """Una transición del caso. Cada subclase dice quién puede, qué datos pide y qué operación es."""
+
+    permisos = ()
+    serializer = None
+
+    def operar(self, actor, caso_id, datos):
+        raise NotImplementedError
+
+    def post(self, request, caso_id):
+        exigir_permiso(request, *self.permisos)
+        datos = {}
+        if self.serializer is not None:
+            entrada = self.serializer(data=request.data)
+            entrada.is_valid(raise_exception=True)
+            datos = entrada.validated_data
+        try:
+            caso = self.operar(request.user.persona, caso_id, datos)
+        except servicios.CasoNoEncontrado:
+            raise NotFound()
+        except servicios.CasoNoGestionable:
+            return Response(MENSAJE_YA_GESTIONADO, status=status.HTTP_409_CONFLICT)
+        return Response(serializar(request, caso))
+
+
+class TomarCasoView(AccionSobreCasoView):
+    permisos = ("caso.gestionar", "caso.responder")
+
+    def operar(self, actor, caso_id, datos):
+        return servicios.tomar(actor, caso_id)
+
+
+class PriorizarCasoView(AccionSobreCasoView):
+    permisos = ("solicitud.priorizar",)
+    serializer = PriorizarCasoSerializer
+
+    def operar(self, actor, caso_id, datos):
+        return servicios.priorizar(actor, caso_id, datos["prioridad"], datos["justificacion"])
+
+
+class RedirigirCasoView(AccionSobreCasoView):
+    permisos = ("caso.gestionar",)
+    serializer = RedirigirCasoSerializer
+
+    def operar(self, actor, caso_id, datos):
+        return servicios.redirigir(actor, caso_id, datos["nota"])
+
+
+class DescartarCasoView(AccionSobreCasoView):
+    """La Secretaría cierra por causal formal. Responder de fondo no le corresponde."""
+
+    permisos = ("caso.gestionar",)
+    serializer = DescartarCasoSerializer
+
+    def operar(self, actor, caso_id, datos):
+        return servicios.descartar(actor, caso_id, datos["causal"], datos["motivo"])
+
+
+class ResponderCasoView(AccionSobreCasoView):
+    permisos = ("caso.responder",)
+    serializer = ResponderCasoSerializer
+
+    def operar(self, actor, caso_id, datos):
+        return servicios.responder(actor, caso_id, datos["respuesta"])
+
+
+class RechazarCasoView(AccionSobreCasoView):
+    permisos = ("caso.responder",)
+    serializer = RechazarCasoSerializer
+
+    def operar(self, actor, caso_id, datos):
+        return servicios.rechazar(actor, caso_id, datos["motivo"])
 
 
 class FotoDeCasoView(VistaDeConjunto):
     def get(self, request, caso_id, foto_id):
         exigir_permiso(request, "caso.crear", "caso.ver_todos")
-        puede_ver_todos = "caso.ver_todos" in permisos_efectivos(request.user.persona, request.auth.conjunto_activo_id)
-        foto = servicios.foto_visible(request.user.persona, caso_id, foto_id, puede_ver_todos)
+        foto = servicios.foto_visible(request.user.persona, caso_id, foto_id, ve_todos(request))
         if foto is None or foto.tipo not in TIPOS_DE_FOTO:
             raise NotFound()
         return HttpResponse(bytes(foto.contenido), content_type=foto.tipo)

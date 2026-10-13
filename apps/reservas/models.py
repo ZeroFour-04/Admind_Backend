@@ -26,6 +26,36 @@ class MotivoLiberacion(models.TextChoices):
     REGLAS = "reglas", "No cumplió las reglas"
 
 
+class CategoriaDeRechazo(models.TextChoices):
+    """Por qué se rechazó una solicitud. Dos listas cerradas en una sola columna (HU-14).
+
+    De fondo, las de Administración: decide si la reserva se concede, y por eso tiene `OTRO`.
+    De forma, las de Secretaría: la solicitud no está en condiciones de tramitarse. Sin `OTRO`.
+    """
+
+    NO_DISPONIBLE = "NO_DISPONIBLE", "El área no está disponible"
+    CONDICIONES_NO_CUMPLIDAS = "CONDICIONES_NO_CUMPLIDAS", "No se cumplen las condiciones"
+    DOCUMENTACION_INCOMPLETA = "DOCUMENTACION_INCOMPLETA", "Documentación incompleta"
+    INCUMPLE_REGLAMENTO = "INCUMPLE_REGLAMENTO", "Incumple el reglamento"
+    OTRO = "OTRO", "Otro motivo"
+    DATOS_INCOMPLETOS = "DATOS_INCOMPLETOS", "Datos incompletos"
+    SOLICITUD_DUPLICADA = "SOLICITUD_DUPLICADA", "Solicitud duplicada"
+    VIVIENDA_NO_CORRESPONDE = "VIVIENDA_NO_CORRESPONDE", "La vivienda no corresponde"
+
+
+CATEGORIAS_DE_FONDO = [
+    CategoriaDeRechazo.NO_DISPONIBLE,
+    CategoriaDeRechazo.CONDICIONES_NO_CUMPLIDAS,
+    CategoriaDeRechazo.DOCUMENTACION_INCOMPLETA,
+    CategoriaDeRechazo.INCUMPLE_REGLAMENTO,
+    CategoriaDeRechazo.OTRO,
+]
+CAUSALES_DE_FORMA = [
+    CategoriaDeRechazo.DATOS_INCOMPLETOS,
+    CategoriaDeRechazo.SOLICITUD_DUPLICADA,
+    CategoriaDeRechazo.VIVIENDA_NO_CORRESPONDE,
+]
+
 BLOQUEANTES = [EstadoSolicitud.EN_SOLICITUD, EstadoSolicitud.APARTADA, EstadoSolicitud.RESERVADA]
 # Hasta aquí la solicitud puede no tener unidad: se elige al llenar el formulario.
 SIN_UNIDAD_PERMITIDA = [EstadoSolicitud.EN_SOLICITUD, EstadoSolicitud.EXPIRADA, EstadoSolicitud.LIBERADA]
@@ -52,6 +82,8 @@ class Solicitud(ModeloDeConjunto):
     evaluacion = models.JSONField(null=True, blank=True, encoder=DjangoJSONEncoder)
     evaluada_en = models.DateTimeField(null=True, blank=True)
     motivo_decision = models.TextField(blank=True)
+    # Solo en una rechazada: la categoría de Administración o la causal formal de Secretaría.
+    categoria_rechazo = models.CharField(max_length=30, choices=CategoriaDeRechazo.choices, blank=True)
     decidida_por = models.ForeignKey(
         "personas.Persona", on_delete=models.PROTECT, null=True, blank=True, related_name="decisiones_reserva"
     )
@@ -94,6 +126,15 @@ class Solicitud(ModeloDeConjunto):
                 condition=Q(pago_declarado_por__isnull=True, pago_declarado_en__isnull=True)
                 | Q(pago_declarado_por__isnull=False, pago_declarado_en__isnull=False),
                 name="solicitud_pago_declarado_completo",
+            ),
+            models.CheckConstraint(
+                condition=Q(categoria_rechazo="") | Q(categoria_rechazo__in=CategoriaDeRechazo.values),
+                name="solicitud_categoria_de_rechazo_valida",
+            ),
+            # Un rechazo sin categoría no se guarda, aunque el código lo intente (HU-14).
+            models.CheckConstraint(
+                condition=~Q(estado=EstadoSolicitud.RECHAZADA) | ~Q(categoria_rechazo=""),
+                name="solicitud_rechazada_con_categoria",
             ),
         ]
         indexes = [

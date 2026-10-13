@@ -78,8 +78,10 @@ PERMISOS_POR_ROL = {
         "parqueadero.ver", "parqueadero.asignar", "parqueadero.gestionar",
         "pago.ver", "pago.confirmar",
     }),
+    # Clasifica y no decide el fondo: no aprueba reservas ni responde casos. Descarta por causal formal
+    # (`solicitud.rechazar_formal`) y redirige los casos al administrador (`caso.gestionar`).
     Rol.SECRETARIA: frozenset({
-        "area.ver", "reserva.ver_todas", "reserva.aprobar", "reserva.rechazar",
+        "area.ver", "reserva.ver_todas",
         "solicitud.bandeja_ver", "solicitud.priorizar", "solicitud.rechazar_formal",
         "anuncio.publicar", "anuncio.dirigir", "caso.ver_todos", "caso.gestionar",
         "pago.ver",

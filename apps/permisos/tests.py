@@ -59,14 +59,18 @@ def test_administracion_tiene_el_permiso_de_crear_conjuntos():
     assert "conjunto.crear" in PERMISOS_POR_ROL[Rol.ADMINISTRACION]
 
 
-def test_administracion_secretaria_y_superusuario_pueden_aprobar_reservas():
+def test_solo_administracion_y_superusuario_aprueban_reservas():
+    """La Secretaría clasifica y no decide el fondo: aprobar no se le concede (decisión del 2026-10-13)."""
     con_aprobacion = {rol for rol, permisos in PERMISOS_POR_ROL.items() if "reserva.aprobar" in permisos}
+    con_rechazo = {rol for rol, permisos in PERMISOS_POR_ROL.items() if "reserva.rechazar" in permisos}
 
-    assert con_aprobacion == {Rol.ADMINISTRACION, Rol.SECRETARIA, Rol.SUPERUSUARIO}
+    assert con_aprobacion == con_rechazo == {Rol.ADMINISTRACION, Rol.SUPERUSUARIO}
 
 
-def test_secretaria_puede_ver_areas_y_reservas():
-    assert {"area.ver", "reserva.ver_todas", "reserva.aprobar", "reserva.rechazar"} <= PERMISOS_POR_ROL[Rol.SECRETARIA]
+def test_secretaria_ve_areas_y_reservas_y_descarta_por_causal_formal():
+    assert {
+        "area.ver", "reserva.ver_todas", "solicitud.bandeja_ver", "solicitud.rechazar_formal"
+    } <= PERMISOS_POR_ROL[Rol.SECRETARIA]
 
 
 def test_secretaria_puede_ver_todos_los_casos():

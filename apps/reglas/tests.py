@@ -451,7 +451,7 @@ def test_una_reserva_al_dia_cuenta_las_de_cualquier_apartamento(torres, solicitu
         vecino = Unidad.objects.create(nombre="Torre 1 – 102")
         apartada(solicitud, laura, 16, 20, unidad=vecino, fecha=EN_DIEZ_DIAS + timedelta(days=1))
         otro_dia = evaluar_tipo(solicitud, {})
-        apartada(solicitud, laura, 16, 20, unidad=vecino, estado="RECHAZADA")
+        apartada(solicitud, laura, 16, 20, unidad=vecino, estado="RECHAZADA", categoria_rechazo="OTRO")
         rechazada = evaluar_tipo(solicitud, {})
         apartada(solicitud, laura, 12, 16, unidad=vecino)
 

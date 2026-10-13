@@ -37,3 +37,16 @@ Maestro §5.1 · HU-11 · R7, R8, R9 · Decisiones §9: 11, 12, 13, 17, 18
 ## Pendiente
 
 - "Un solo bloqueo activo en todo el sistema" contra "toda clave única incluye `conjunto_id`" (§12.7 c)
+
+## Decidir una solicitud (HU-14, 2026-10-13)
+
+Dos operaciones distintas, con permiso y lista de motivos propios. Las dos bloquean la fila, exigen que la solicitud siga `APARTADA` (si no, 409), auditan y avisan a quien la hizo (`origen="reserva.decision"`), sin decir quién decidió.
+
+| Ruta | Quién | Qué pide |
+|---|---|---|
+| `POST /reservas/solicitudes/<id>/decision/` | Administración (`reserva.aprobar`, `reserva.rechazar`) | Aprobar: `motivo`. Rechazar: `categoria` de `CATEGORIAS_DE_FONDO`; con `OTRO`, también `motivo` |
+| `POST /reservas/solicitudes/<id>/descarte/` | Secretaría (`solicitud.rechazar_formal`) | `causal` de `CAUSALES_DE_FORMA` (sin «otro») y `comentario` |
+
+La Secretaría **no aprueba**: clasifica y descarta. La base no guarda una `RECHAZADA` sin `categoria_rechazo` (`solicitud_rechazada_con_categoria`).
+
+`GET /reservas/bandeja/` exige `solicitud.bandeja_ver` (Vigilancia no entra) y, como `…/areas/<id>/solicitudes/`, trae primero las que esperan decisión y, entre ellas, la que más lleva esperando: entre reservas no hay prioridad. Cada solicitud trae `completada` (aprobada y con la franja ya terminada), que se calcula y no es un estado guardado.

@@ -27,10 +27,10 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='persona',
             name='telefono',
-            field=models.CharField(blank=True, max_length=10),
+            field=models.CharField(blank=True, max_length=15),
         ),
         migrations.AddConstraint(
             model_name='persona',
-            constraint=models.CheckConstraint(condition=models.Q(('telefono', ''), ('telefono__regex', '^\\+?[0-9]{7,10}$'), _connector='OR'), name='persona_telefono_valido'),
+            constraint=models.CheckConstraint(condition=models.Q(('telefono', ''), ('telefono__regex', '^\\+?[0-9]{7,15}$'), _connector='OR'), name='persona_telefono_valido'),
         ),
     ]

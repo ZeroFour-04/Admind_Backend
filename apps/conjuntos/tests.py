@@ -207,7 +207,27 @@ def test_administracion_solo_ve_sus_conjuntos_y_el_superusuario_todos(admin, tor
     assert [c["nombre"] for c in admin.get("/auth/conjuntos/").json()] == ["Torres del Río"]
     crear_persona("super@admind.com", (Rol.SUPERUSUARIO, None))
     superusuario = cliente_para("super@admind.com")
+
     assert [c["nombre"] for c in superusuario.get("/auth/conjuntos/").json()] == ["Ajeno", "Torres del Río"]
+
+
+def test_superusuario_ve_todos_los_conjuntos_creados_incluidos_los_inactivos(admin, torres):
+    Conjunto.objects.create(nombre="Inactivo", activo=False)
+    crear_persona("super@admind.com", (Rol.SUPERUSUARIO, None))
+    superusuario = cliente_para("super@admind.com")
+
+    assert [c["nombre"] for c in superusuario.get("/auth/conjuntos/").json()] == ["Inactivo", "Torres del Río"]
+
+
+def test_superusuario_puede_dar_de_baja_un_conjunto_sin_confirmacion(superusuario, torres):
+    superusuario.post("/auth/conjunto-activo/", {"conjunto": str(torres.id)}, format="json")
+
+    respuesta = superusuario.delete("/conjuntos/actual/", format="json")
+
+    assert respuesta.status_code == 204
+    torres.refresh_from_db()
+    assert torres.activo is False
+    assert torres.operativo is False
 
 
 def test_el_listado_de_conjuntos_trae_el_acento(admin, torres):

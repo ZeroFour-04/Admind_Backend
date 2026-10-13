@@ -21,6 +21,7 @@ Todas exigen token y, con permisos sensibles, el segundo factor verificado (ver 
 | `POST` | `/conjuntos/` | Paso 1: crea el conjunto con `nombre`, `direccion` y `acento`, y lo deja como conjunto activo. Exige `conjunto.crear` | 201 con `conjunto` y el estado de la sesión · 400 si el nombre ya existe o el acento no está en el catálogo |
 | `GET` | `/conjuntos/actual/` | Resumen del asistente: datos, administradores, requisitos y si puede activarlo. Exige `conjunto.editar` | 200 |
 | `PATCH` | `/conjuntos/actual/` | Guardado parcial de los datos básicos. Exige `conjunto.editar`, y `conjunto.branding` para cambiar el acento | 200 con el resumen |
+| `DELETE` | `/conjuntos/actual/` | Baja lógica del conjunto activo. Solo el Superusuario puede usarlo cuando está dentro del conjunto; queda inactivo y desaparece de la vista de los demás | 204 · 400 si ya estaba eliminado |
 | `POST` | `/conjuntos/actual/activar/` | Lo deja operativo si cumple los requisitos. Exige `conjunto.activar` | 200 · 400 con la lista de `faltantes` |
 | `GET` `PATCH` | `/conjuntos/actual/identidad/` | Color y logo del conjunto activo; el `PATCH` cambia el `acento`. Exige `conjunto.branding` (o `conjunto.activar`) | 200 con `id`, `nombre`, `acento`, `logo` · 400 si el acento no está en el catálogo |
 | `PUT` `DELETE` | `/conjuntos/actual/identidad/logo/` | Sube o reemplaza el logo (multipart, campo `archivo`) o lo quita. Mismo permiso | 200 con la identidad · 400 con el error en `archivo` |

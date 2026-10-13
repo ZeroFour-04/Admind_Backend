@@ -12,6 +12,7 @@ from apps.areas.models import Area
 from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.conjuntos.imagenes import dimensiones
 from apps.conjuntos.models import Conjunto, LogoDeConjunto
+from apps.cuentas.models import TokenDeSesion
 from apps.documentos.models import Reglamento
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
@@ -36,6 +37,10 @@ class ConjuntoIncompleto(Exception):
     def __init__(self, faltantes):
         super().__init__(faltantes)
         self.faltantes = faltantes
+
+
+class ConjuntoYaInactivo(Exception):
+    """El conjunto ya fue dado de baja."""
 
 
 class LogoInvalido(Exception):
@@ -129,6 +134,22 @@ def activar(conjunto):
         raise ConjuntoIncompleto(faltantes)
     conjunto.operativo = True
     conjunto.save(update_fields=["operativo"])
+    return conjunto
+
+
+def eliminar(conjunto):
+    """Da de baja lógica el conjunto y limpia la sesión activa en cualquier cuenta.
+
+    La arquitectura del proyecto evita borrados físicos: se deja inactivo para que la información
+    siga viva como historial, pero deje de ser operable y desaparezca de las vistas de los demás.
+    """
+    if not conjunto.activo:
+        raise ConjuntoYaInactivo()
+    with transaction.atomic():
+        conjunto.activo = False
+        conjunto.operativo = False
+        conjunto.save(update_fields=["activo", "operativo"])
+        TokenDeSesion.objects.filter(conjunto_activo=conjunto).update(conjunto_activo=None)
     return conjunto
 
 

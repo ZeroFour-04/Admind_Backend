@@ -37,14 +37,16 @@ def es_superusuario(persona):
 
 
 def conjuntos_disponibles(persona):
-    """Conjuntos activos donde la persona puede operar (HU-26).
+    """Conjuntos a los que la persona puede acceder.
 
-    El Superusuario gobierna la plataforma: puede elegir cualquiera. El resto, solo aquellos
-    donde tiene al menos una asignación vigente; nadie ve los conjuntos de otros.
+    El Superusuario gobierna la plataforma y debe ver todos los conjuntos creados, incluso si
+    todavía no quedaron activos. El resto solo ve los activos donde tiene al menos una asignación
+    vigente; nadie ve los conjuntos de otros.
     """
-    conjuntos = Conjunto.objects.filter(activo=True).order_by("nombre")
+    conjuntos = Conjunto.objects.order_by("nombre")
     if es_superusuario(persona):
         return conjuntos
+    conjuntos = conjuntos.filter(activo=True)
     con_asignacion = Asignacion.objects.vigentes().filter(persona=persona).values("conjunto_id")
     return conjuntos.filter(pk__in=con_asignacion)
 

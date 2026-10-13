@@ -20,7 +20,7 @@ from apps.conjuntos.serializers import (
 )
 from apps.cuentas import servicios as servicios_de_cuentas
 from apps.cuentas.serializers import estado_de_la_sesion
-from apps.permisos.servicios import puede_crear_conjuntos, tiene_permiso
+from apps.permisos.servicios import es_superusuario, puede_crear_conjuntos, tiene_permiso
 from apps.permisos.views import MENSAJE_SIN_PERMISO, exigir_permiso
 
 
@@ -79,6 +79,16 @@ class ConjuntoActualView(VistaDeConjunto):
         datos.is_valid(raise_exception=True)
         servicios.editar_datos(conjunto, **datos.validated_data)
         return Response(resumen_del_asistente(request, conjunto))
+
+    def delete(self, request):
+        if not es_superusuario(request.user.persona):
+            raise PermissionDenied(MENSAJE_SIN_PERMISO)
+        conjunto = Conjunto.objects.get(pk=request.auth.conjunto_activo_id)
+        try:
+            servicios.eliminar(conjunto)
+        except servicios.ConjuntoYaInactivo:
+            return Response({"detail": "Este conjunto ya fue eliminado."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ActivarConjuntoView(VistaDeConjunto):

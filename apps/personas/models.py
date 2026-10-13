@@ -23,7 +23,7 @@ class Persona(models.Model):
     numero_documento = models.CharField(max_length=20)
     nombres = models.CharField(max_length=30)
     apellidos = models.CharField(max_length=30)
-    telefono = models.CharField(max_length=10, blank=True)
+    telefono = models.CharField(max_length=15, blank=True)
     activo = models.BooleanField(default=True)
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)

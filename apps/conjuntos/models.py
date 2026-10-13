@@ -26,7 +26,7 @@ class Acento(models.TextChoices):
 
 class Conjunto(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    nombre = models.CharField(max_length=80)
+    nombre = models.CharField(max_length=30)
     direccion = models.CharField(max_length=200, blank=True)
     # El color cambia al cambiar de conjunto: dice dónde se está operando (HU-26).
     acento = models.CharField(max_length=16, choices=Acento.choices, default=Acento.VERDE)

@@ -58,15 +58,15 @@ class ElegirConjuntoSerializer(serializers.Serializer):
 class CrearUsuarioSerializer(serializers.Serializer):
     tipo_documento = serializers.ChoiceField(choices=TipoDocumento.choices)
     numero_documento = serializers.CharField(max_length=20)
-    nombres = serializers.CharField(max_length=80)
-    apellidos = serializers.CharField(max_length=80)
+    nombres = serializers.CharField(max_length=30)
+    apellidos = serializers.CharField(max_length=30)
     telefono = serializers.RegexField(
-        regex=r"^\+?[0-9]{7,15}$",
-        max_length=16,
+        regex=r"^\+?[0-9]{7,10}$",
+        max_length=10,
         allow_blank=True,
         required=False,
         error_messages={
-            "invalid": "El teléfono debe tener entre 7 y 15 dígitos y puede iniciar con +."
+            "invalid": "El teléfono debe tener entre 7 y 10 dígitos y puede iniciar con +."
         },
     )
     correo = serializers.EmailField()

@@ -332,6 +332,33 @@ def test_crear_usuario_con_telefono_corto_responde_400_sin_crear_registros(clien
     assert not Usuario.objects.filter(correo="carlos@correo.com").exists()
 
 
+def test_crear_usuario_con_nombres_o_telefono_demasiado_largos_responde_400_sin_crear_registros(cliente, usuario):
+    activo = Conjunto.objects.create(nombre="Torres del Río")
+    asignar(usuario, Rol.ADMINISTRACION, activo)
+    entrar(cliente)
+
+    for campo, valor in [("nombres", "N" * 31), ("apellidos", "A" * 31), ("telefono", "30012345678")]:
+        respuesta = cliente.post("/auth/usuarios/", datos_de_usuario(**{campo: valor}), format="json")
+
+        assert respuesta.status_code == 400
+        assert campo in respuesta.json()
+    assert Persona.objects.count() == 1
+
+
+def test_crear_usuario_con_nombres_de_30_caracteres_y_telefono_de_10_responde_201(cliente, usuario):
+    activo = Conjunto.objects.create(nombre="Torres del Río")
+    asignar(usuario, Rol.ADMINISTRACION, activo)
+    entrar(cliente)
+
+    respuesta = cliente.post(
+        "/auth/usuarios/",
+        datos_de_usuario(nombres="N" * 30, apellidos="A" * 30, telefono="3001234567"),
+        format="json",
+    )
+
+    assert respuesta.status_code == 201
+
+
 def test_crear_usuario_sin_conjunto_activo_responde_403(cliente, usuario):
     asignar(usuario, Rol.SUPERUSUARIO)
     entrar(cliente)

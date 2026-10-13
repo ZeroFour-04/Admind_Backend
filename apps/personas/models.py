@@ -21,9 +21,9 @@ class Persona(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tipo_documento = models.CharField(max_length=3, choices=TipoDocumento.choices)
     numero_documento = models.CharField(max_length=20)
-    nombres = models.CharField(max_length=80)
-    apellidos = models.CharField(max_length=80)
-    telefono = models.CharField(max_length=16, blank=True)
+    nombres = models.CharField(max_length=30)
+    apellidos = models.CharField(max_length=30)
+    telefono = models.CharField(max_length=10, blank=True)
     activo = models.BooleanField(default=True)
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
@@ -43,7 +43,7 @@ class Persona(models.Model):
                 name="persona_documento_normalizado",
             ),
             models.CheckConstraint(
-                condition=Q(telefono="") | Q(telefono__regex=r"^\+?[0-9]{7,15}$"),
+                condition=Q(telefono="") | Q(telefono__regex=r"^\+?[0-9]{7,10}$"),
                 name="persona_telefono_valido",
             ),
         ]

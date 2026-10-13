@@ -56,7 +56,7 @@ def validar_color(datos):
 class DatosDeConjuntoSerializer(serializers.Serializer):
     """Paso 1 del asistente. Al editar (PATCH) todos los campos son opcionales."""
 
-    nombre = serializers.CharField(max_length=80)
+    nombre = serializers.CharField(max_length=30)
     direccion = serializers.CharField(max_length=200, allow_blank=True, required=False)
     acento = serializers.ChoiceField(choices=Acento.choices, required=False)
     color = color_hex()

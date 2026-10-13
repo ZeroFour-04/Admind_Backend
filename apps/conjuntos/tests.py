@@ -191,6 +191,16 @@ def test_nombre_repetido_o_acento_fuera_del_catalogo_responden_400(admin):
     assert crear(admin, acento="fucsia").status_code == 400
 
 
+def test_el_nombre_del_conjunto_admite_30_caracteres_y_con_31_responde_400(admin):
+    assert crear(admin, nombre="C" * 31).status_code == 400
+    assert not Conjunto.objects.filter(nombre="C" * 31).exists()
+
+    respuesta = crear(admin, nombre="C" * 30)
+
+    assert respuesta.status_code == 201
+    assert Conjunto.objects.filter(nombre="C" * 30).exists()
+
+
 def test_administracion_solo_ve_sus_conjuntos_y_el_superusuario_todos(admin, torres):
     Conjunto.objects.create(nombre="Ajeno")
 

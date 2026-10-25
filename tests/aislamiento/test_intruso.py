@@ -26,7 +26,7 @@ from apps.reglas.models import Regla
 from apps.reservas.models import Campana, ComprobanteDePago, EstadoSolicitud, Solicitud
 from apps.unidades.models import Agrupacion, TipoVinculo, Unidad, VinculoUnidad
 from apps.pagos.models import Comprobante, PagoDeAdministracion
-from apps.parqueaderos.models import Parqueadero
+from apps.parqueaderos.models import AsignacionParqueadero, Parqueadero
 from apps.visitantes.models import Visitante
 from tests.aislamiento.models import Area
 
@@ -586,6 +586,47 @@ def listado_de_parqueaderos(otro_conjunto):
     return reverse("parqueaderos"), str(parqueadero_de(otro_conjunto).pk)
 
 
+def parqueadero_de_residentes_de(otro_conjunto):
+    """Un puesto de residentes asignado a una vivienda del otro conjunto."""
+    creador = usuario_de(otro_conjunto).persona
+    unidad = unidad_de(otro_conjunto)
+    with usar_conjunto(otro_conjunto.id):
+        puesto = Parqueadero.objects.create(
+            codigo=f"R-{Parqueadero.objects.count() + 1:02d}", tipo="residentes", creado_por=creador
+        )
+        AsignacionParqueadero.objects.create(parqueadero=puesto, unidad=unidad, registrado_por=creador)
+    return puesto, unidad
+
+
+def historial_de_parqueadero(otro_conjunto):
+    return reverse("parqueadero-asignaciones", kwargs={"parqueadero_id": parqueadero_de_residentes_de(otro_conjunto)[0].pk})
+
+
+def mis_parqueaderos(otro_conjunto):
+    puesto, _ = parqueadero_de_residentes_de(otro_conjunto)
+    return reverse("parqueaderos-mios"), str(puesto.pk)
+
+
+def asignar_parqueadero_en(otro_conjunto):
+    puesto, unidad = parqueadero_de_residentes_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return AsignacionParqueadero.objects.filter(parqueadero=puesto, vigencia_hasta__isnull=True).count() == 1
+
+    return "post", reverse("parqueadero-asignacion", kwargs={"parqueadero_id": puesto.pk}), intacto
+
+
+def liberar_parqueadero_en(otro_conjunto):
+    puesto, _ = parqueadero_de_residentes_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return AsignacionParqueadero.objects.filter(parqueadero=puesto, vigencia_hasta__isnull=True).count() == 1
+
+    return "post", reverse("parqueadero-liberacion", kwargs={"parqueadero_id": puesto.pk}), intacto
+
+
 def desactivar_parqueadero_en(otro_conjunto):
     parqueadero = parqueadero_de(otro_conjunto)
 
@@ -712,6 +753,7 @@ DETALLES = {
     "reglamento-archivo": archivo_del_reglamento,
     "solicitud-comprobante": comprobante_de_otro_conjunto,
     "pago-comprobante": comprobante_de_pago_ajeno,
+    "parqueadero-asignaciones": historial_de_parqueadero,
 }
 LISTADOS = {
     "solicitudes-bandeja": listado_de_la_bandeja,
@@ -730,6 +772,7 @@ LISTADOS = {
     "solicitudes": listado_de_solicitudes,
     "visitantes": listado_de_visitantes,
     "parqueaderos": listado_de_parqueaderos,
+    "parqueaderos-mios": mis_parqueaderos,
     "pagos-administracion": tabla_de_pagos,
     "pagos-mios": pagos_mios,
     "ingresos": listado_de_ingresos,
@@ -770,6 +813,8 @@ ACCIONES = {
     "ingreso-residentes-buscar": buscar_residente_en,
     "ingreso-salida": salida_en,
     "parqueadero-desactivar": desactivar_parqueadero_en,
+    "parqueadero-asignacion": asignar_parqueadero_en,
+    "parqueadero-liberacion": liberar_parqueadero_en,
     "pago-confirmacion": confirmar_pago_en,
     "pago-reportes": reportar_pago_en,
     "visitante-salida": salida_de_visitante_en,

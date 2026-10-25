@@ -11,7 +11,7 @@ from apps.areas.models import Area
 from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.conjuntos.models import Conjunto
 from apps.cuentas.models import TokenDeSesion, Usuario
-from apps.documentos.models import Reglamento
+from apps.documentos.models import Documento, TipoDeDocumento
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
@@ -328,8 +328,13 @@ def completar(conjunto, persona, con_reglamento=True, con_reglas_del_conjunto=Tr
         if con_reglas_del_conjunto:
             Regla.objects.create(tipo=TipoDeRegla.ANTICIPACION_MAXIMA, parametros={"dias": 30}, creada_por=persona)
         if con_reglamento:
-            Reglamento.objects.create(
-                contenido=b"%PDF-1.7 prueba", nombre="reglamento.pdf", peso=15, huella="a" * 64, subido_por=persona
+            Documento.objects.create(
+                tipo=TipoDeDocumento.REGLAMENTO,
+                contenido=b"%PDF-1.7 prueba",
+                nombre="reglamento.pdf",
+                peso=15,
+                huella="a" * 64,
+                subido_por=persona,
             )
 
 
@@ -411,3 +416,22 @@ def test_superusuario_asigna_el_primer_administrador_en_el_paso_2(superusuario):
     assert respuesta.status_code == 201
     requisitos = {r["clave"]: r for r in superusuario.get("/conjuntos/actual/").json()["requisitos"]}
     assert requisitos["administracion"]["cumplido"] is True
+
+
+def test_hu33_un_manual_de_convivencia_solo_no_cuenta_como_reglamento(superusuario, torres, admin_torres):
+    completar(torres, admin_torres, con_reglamento=False)
+    with usar_conjunto(torres.id):
+        Documento.objects.create(
+            tipo=TipoDeDocumento.MANUAL,
+            contenido=b"%PDF-1.7 manual",
+            nombre="manual.pdf",
+            peso=15,
+            huella="c" * 64,
+            subido_por=admin_torres,
+        )
+    superusuario.post("/auth/conjunto-activo/", {"conjunto": str(torres.id)}, format="json")
+
+    respuesta = superusuario.post("/conjuntos/actual/activar/")
+
+    assert respuesta.status_code == 400
+    assert respuesta.json()["faltantes"] == ["Reglamento cargado"]

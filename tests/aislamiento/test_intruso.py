@@ -18,6 +18,7 @@ from apps.conjuntos.models import Conjunto
 from apps.cuentas.models import TokenDeSesion, Usuario
 from apps.documentos.models import Reglamento
 from apps.ingresos.models import Ingreso
+from apps.infracciones.models import RegistroDeInfraccion
 from apps.notificaciones.models import Notificacion
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
@@ -574,6 +575,47 @@ def reportar_pago_en(otro_conjunto):
     return "post", reverse("pago-reportes"), intacto
 
 
+def infraccion_de(otro_conjunto):
+    persona = usuario_de(otro_conjunto).persona
+    unidad = unidad_de(otro_conjunto)
+    with usar_conjunto(otro_conjunto.id):
+        return RegistroDeInfraccion.objects.create(
+            unidad=unidad,
+            descripcion_hecho="Hecho de otro conjunto",
+            fecha_hecho=timezone.localdate(),
+            registrado_por=persona,
+            fecha_notificacion=timezone.now(),
+        )
+
+
+def detalle_de_infraccion(otro_conjunto):
+    return reverse("infraccion-detalle", kwargs={"registro_id": infraccion_de(otro_conjunto).pk})
+
+
+def listado_de_infracciones(otro_conjunto):
+    return reverse("infracciones"), str(infraccion_de(otro_conjunto).pk)
+
+
+def cerrar_infraccion_en(otro_conjunto):
+    registro = infraccion_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return RegistroDeInfraccion.objects.get(pk=registro.pk).cierre_fecha is None
+
+    return "post", reverse("infraccion-cierre", kwargs={"registro_id": registro.pk}), intacto
+
+
+def anular_infraccion_en(otro_conjunto):
+    registro = infraccion_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return not RegistroDeInfraccion.objects.get(pk=registro.pk).anulado
+
+    return "post", reverse("infraccion-anulacion", kwargs={"registro_id": registro.pk}), intacto
+
+
 def parqueadero_de(otro_conjunto):
     creador = usuario_de(otro_conjunto).persona
     with usar_conjunto(otro_conjunto.id):
@@ -712,6 +754,7 @@ DETALLES = {
     "reglamento-archivo": archivo_del_reglamento,
     "solicitud-comprobante": comprobante_de_otro_conjunto,
     "pago-comprobante": comprobante_de_pago_ajeno,
+    "infraccion-detalle": detalle_de_infraccion,
 }
 LISTADOS = {
     "solicitudes-bandeja": listado_de_la_bandeja,
@@ -730,6 +773,7 @@ LISTADOS = {
     "solicitudes": listado_de_solicitudes,
     "visitantes": listado_de_visitantes,
     "parqueaderos": listado_de_parqueaderos,
+    "infracciones": listado_de_infracciones,
     "pagos-administracion": tabla_de_pagos,
     "pagos-mios": pagos_mios,
     "ingresos": listado_de_ingresos,
@@ -770,6 +814,8 @@ ACCIONES = {
     "ingreso-residentes-buscar": buscar_residente_en,
     "ingreso-salida": salida_en,
     "parqueadero-desactivar": desactivar_parqueadero_en,
+    "infraccion-cierre": cerrar_infraccion_en,
+    "infraccion-anulacion": anular_infraccion_en,
     "pago-confirmacion": confirmar_pago_en,
     "pago-reportes": reportar_pago_en,
     "visitante-salida": salida_de_visitante_en,

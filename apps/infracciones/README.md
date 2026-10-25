@@ -4,7 +4,20 @@ Alcance: Comprometido (§3.2).
 
 El sistema **no sanciona**: notifica la infracción y registra su desenlace.
 
-## Qué va aquí
+## Qué hay hoy
+
+**Construido el 2026-10-25 (HU-30, rama `feat/infracciones-registro`, sin commit):** `RegistroDeInfraccion` (`infracciones/0001`) con los `CHECK` de abajo y FK compuestas; `servicios.registrar` (comunica a propietario y arrendatario y sella `fecha_notificacion` en la misma transacción; sin destinatarios, 400), `cerrar` (avisa otra vez, origen `infraccion.cierre`) y `anular` (sin aviso).
+
+| Método | Ruta | Permiso | Respuestas |
+|---|---|---|---|
+| `GET` / `POST` | `/infracciones/` | `infraccion.ver` / `infraccion.registrar` | 200 con la lista (abiertos primero) · 201 · 400 |
+| `GET` | `/infracciones/<id>/` | `infraccion.ver` | 200 · 404 |
+| `POST` | `/infracciones/<id>/cierre/` | `infraccion.cerrar` | 200 · 409 si ya está cerrado o anulado |
+| `POST` | `/infracciones/<id>/anulacion/` | `infraccion.anular` (solo el Superusuario) | 200 con motivo · 409 si ya está anulado |
+
+Todos los permisos son sensibles (2FA). Ninguna ruta admite `PUT`, `PATCH` ni `DELETE`. Un registro anulado sigue en la lista.
+
+## Diseño
 
 - Modelo `RegistroDeInfraccion` (§5.8). Sin campo `estado`: está abierto si `cierre_fecha` es nulo
 - `fecha_notificacion` obligatoria; la comunicación va a **propietario y arrendatario**, ambos

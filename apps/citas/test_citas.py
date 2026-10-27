@@ -150,7 +150,7 @@ def test_una_cita_vencida_pasa_a_atendida_y_no_bloquea_una_nueva():
     with usar_conjunto(conjunto.id):
         anterior = Cita.objects.create(
             conjunto=conjunto,
-            persona=Persona.objects.get(nombres="Laura"),
+            persona=Usuario.objects.get(correo="vecino@torres.com").persona,
             fecha=timezone.localdate() - timedelta(days=2),
             hora_inicio="08:00",
             hora_fin="10:00",

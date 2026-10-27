@@ -82,7 +82,16 @@ def casos_de(persona):
     return _casos_con_detalles(Caso.objects.filter(autor=persona).order_by("-creado_en"))
 
 
-def casos_para_bandeja(ver="todos", orden="prioridad", solo_redirigidos=False):
+def casos_para_bandeja(
+    ver="todos",
+    orden="prioridad",
+    solo_redirigidos=False,
+    estado=None,
+    prioridad=None,
+    desde=None,
+    hasta=None,
+    solicitante="",
+):
     """Todos los del conjunto, para gestión: primero los abiertos, por prioridad y luego antigüedad.
 
     `orden="antiguedad"` ignora la prioridad por completo: es la salida de emergencia si algo quedó

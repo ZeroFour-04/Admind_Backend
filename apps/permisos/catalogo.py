@@ -36,7 +36,7 @@ PERMISOS = PERMISOS_DE_PLATAFORMA | frozenset({
     "ingreso.registrar", "ingreso.ver_historico",
     "caso.crear", "caso.ver_todos", "caso.responder", "caso.gestionar",
     "solicitud.bandeja_ver", "solicitud.priorizar", "solicitud.rechazar_formal",
-    "infraccion.registrar", "infraccion.ver", "infraccion.cerrar",
+    "infraccion.registrar", "infraccion.ver", "infraccion.cerrar", "infraccion.anular",
     "anuncio.publicar", "anuncio.dirigir",
     "cita.agendar_propia", "cita.gestionar_horario", "cita.ver_todas",
     "documento.subir", "documento.ver", "documento.descargar",
@@ -51,6 +51,8 @@ PERMISOS_SENSIBLES = PERMISOS_DE_PLATAFORMA | frozenset({
     "usuario.gestionar", "rol.asignar", "auditoria.ver",
     "persona.buscar", "persona.vincular",
     "infraccion.registrar", "infraccion.ver", "infraccion.cerrar",
+    # Solo el Superusuario la tiene (en ningún rol de conjunto): un registro equivocado se anula, no se borra (HU-30, D3 a).
+    "infraccion.anular",
     "solicitud.bandeja_ver",
     # Muestra quién vive en cada vivienda y sus comprobantes de pago (HU-35, D5 a).
     "pago.ver",

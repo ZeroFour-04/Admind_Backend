@@ -11,6 +11,7 @@ from apps.permisos.views import exigir_permiso, tiene_permiso_en_conjunto
 from apps.reservas import pago, servicios
 from apps.reservas.serializers import (
     CampanaSerializer,
+    ConsultarBandejaSerializer,
     ConsultarFranjasSerializer,
     DecisionDeSolicitudSerializer,
     DeclararPagoSerializer,
@@ -148,8 +149,12 @@ class BandejaDeSolicitudesView(VistaDeConjunto):
     def get(self, request):
         """La pestaña Reservas del dashboard: Administración y Secretaría. Vigilancia no entra."""
         exigir_permiso(request, "solicitud.bandeja_ver")
+        consulta = ConsultarBandejaSerializer(data=request.query_params)
+        consulta.is_valid(raise_exception=True)
         return Response(
-            SolicitudParaAdministrarSerializer(servicios.solicitudes_para_bandeja(), many=True).data
+            SolicitudParaAdministrarSerializer(
+                servicios.solicitudes_para_bandeja(**consulta.validated_data), many=True
+            ).data
         )
 
 

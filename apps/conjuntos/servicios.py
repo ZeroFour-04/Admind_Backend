@@ -13,7 +13,7 @@ from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.conjuntos.imagenes import dimensiones
 from apps.conjuntos.models import Conjunto, LogoDeConjunto
 from apps.cuentas.models import TokenDeSesion
-from apps.documentos.models import Reglamento
+from apps.documentos.models import Documento, TipoDeDocumento
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.permisos.servicios import conjuntos_disponibles, es_superusuario
@@ -124,7 +124,10 @@ def requisitos_para_operar(conjunto):
             "Reglas del conjunto definidas",
             Regla.objects.vigentes().filter(area__isnull=True, tipo=TipoDeRegla.ANTICIPACION_MAXIMA).exists(),
         ),
-        Requisito("reglamento", "Reglamento cargado", Reglamento.objects.exists()),
+        # El manual de convivencia es opcional (HU-33, D4 a): solo el reglamento cuenta para quedar operativo.
+        Requisito(
+            "reglamento", "Reglamento cargado", Documento.objects.filter(tipo=TipoDeDocumento.REGLAMENTO).exists()
+        ),
     ]
 
 

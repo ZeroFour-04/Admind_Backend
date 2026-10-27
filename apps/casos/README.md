@@ -17,7 +17,7 @@ Toda transición pasa por `servicios._pasar`: bloquea la fila, revisa el estado 
 
 | Ruta | Nombre | Permiso |
 |---|---|---|
-| `GET /casos/` | `casos` | `caso.crear` (los propios) o `caso.ver_todos` (todos; `?ver=abiertos`, `?orden=antiguedad`) |
+| `GET /casos/` | `casos` | `caso.crear` (los propios) o `caso.ver_todos` (todos; `?ver=abiertos`, `?orden=antiguedad`, y los filtros `estado`, `prioridad`, `desde`, `hasta` y `solicitante`; uno inválido responde 400) |
 | `POST /casos/` | `casos` | `caso.crear` |
 | `GET /casos/<id>/` | `caso-detalle` | `caso.ver_todos`, o `caso.crear` si es suyo; si no, 404 |
 | `POST /casos/<id>/tomar/` | `caso-tomar` | `caso.gestionar` o `caso.responder` |

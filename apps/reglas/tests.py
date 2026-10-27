@@ -96,6 +96,10 @@ PARAMETROS_VALIDOS = {
     "DIA_LIMITE_DE_PAGO": ({"dia": 10}, "La administración se paga hasta el día 10 de cada mes"),
     "CUPO_POR_UNIDAD": ({"reservas": 2, "dias": 30}, "Máximo 2 reservas por apartamento cada 30 días"),
     "ACOMPANANTES": ({"maximo": 2}, "Máximo 2 acompañantes por vivienda a la vez"),
+    "PARQUEADEROS_POR_VIVIENDA": (
+        {"carro": 1, "moto": 1, "bicicleta": 0},
+        "Máximo 1 de carro, 1 de moto y 0 de bicicleta por vivienda",
+    ),
     "UNA_RESERVA_POR_DIA": ({}, "Solo una reserva al día"),
     "SIN_FRANJAS_SEGUIDAS": ({}, "Un apartamento no reserva franjas seguidas"),
     "DIAS_QUE_NO_ABRE": (
@@ -196,6 +200,8 @@ def test_cada_tipo_del_catalogo_se_crea_y_se_describe_en_palabras(admin, salon, 
         ("DIA_LIMITE_DE_PAGO", {"dia": 0}, "dia"),
         ("DIA_LIMITE_DE_PAGO", {}, "dia"),
         ("CUPO_POR_UNIDAD", {"reservas": 2}, "dias"),
+        ("PARQUEADEROS_POR_VIVIENDA", {"carro": 1, "moto": 1}, "bicicleta"),
+        ("PARQUEADEROS_POR_VIVIENDA", {"carro": -1, "moto": 1, "bicicleta": 0}, "carro"),
         ("UNA_RESERVA_POR_DIA", {"maximo": 1}, "maximo"),
         ("DIAS_QUE_NO_ABRE", {"renglones": []}, "renglones"),
         ("DIAS_QUE_NO_ABRE", {"renglones": [{"dia_semana": 0}]}, "renglones"),
@@ -293,6 +299,7 @@ def test_el_catalogo_trae_cada_tipo_con_su_nivel_y_su_descripcion(admin):
         ("REQUIERE_PAZ_Y_SALVO", "alfa"),
         ("DIA_LIMITE_DE_PAGO", "alfa"),
         ("ACOMPANANTES", "alfa"),
+        ("PARQUEADEROS_POR_VIVIENDA", "alfa"),
         ("DIAS_QUE_NO_ABRE", "beta"),
         ("CUPO_POR_UNIDAD", "beta"),
         ("UNA_RESERVA_POR_DIA", "beta"),
@@ -302,7 +309,8 @@ def test_el_catalogo_trae_cada_tipo_con_su_nivel_y_su_descripcion(admin):
     assert catalogo[2]["nota"] == "Solo restringe si también defines el día límite de pago."
     assert "Aplícala solo si el reglamento del conjunto lo permite." in catalogo[2]["descripcion"]
     assert catalogo[3]["nombre"] == "Día límite de pago" and catalogo[3]["nota"] == ""
-    assert catalogo[6]["nombre"] == "Límite de reservas por apartamento" and catalogo[6]["nota"] == ""
+    assert catalogo[5]["nombre"] == "Parqueaderos por vivienda" and catalogo[5]["nota"] == ""
+    assert catalogo[7]["nombre"] == "Límite de reservas por apartamento" and catalogo[7]["nota"] == ""
     assert {entrada["tipo"]: entrada["modos"] for entrada in catalogo} == {
         "ANTICIPACION_MINIMA": ["reserva"],
         "ANTICIPACION_MAXIMA": ["reserva"],
@@ -310,6 +318,8 @@ def test_el_catalogo_trae_cada_tipo_con_su_nivel_y_su_descripcion(admin):
         # Ningún evaluador la evalúa: la lee `pagos` para saber desde cuándo hay mora.
         "DIA_LIMITE_DE_PAGO": [],
         "ACOMPANANTES": ["ingreso"],
+        # La lee la asignación de parqueaderos (HU-34): ningún evaluador de reservas ni de ingresos la toca.
+        "PARQUEADEROS_POR_VIVIENDA": [],
         "DIAS_QUE_NO_ABRE": ["reserva", "ingreso"],
         "CUPO_POR_UNIDAD": ["reserva"],
         "UNA_RESERVA_POR_DIA": ["reserva"],

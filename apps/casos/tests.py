@@ -4,6 +4,7 @@ import uuid
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, connection, transaction
+from django.urls import URLResolver, get_resolver
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -286,6 +287,127 @@ def test_el_descarte_exige_causal_y_motivo_y_no_es_de_administracion(contexto, g
     assert de_administracion.status_code == 403
     with usar_conjunto(conjunto.id):
         assert Caso.objects.get(pk=caso["id"]).estado == "ABIERTO"
+
+
+# HU-24: el rechazo formal de un caso, un criterio por prueba
+
+
+def rutas_de_casos(patrones):
+    for patron in patrones:
+        if isinstance(patron, URLResolver):
+            yield from rutas_de_casos(patron.url_patterns)
+        elif str(patron.callback.__module__).startswith("apps.casos"):
+            yield str(patron.pattern), patron.name
+
+
+def test_hu24_rechazo_formal_no_se_aprueba_ni_se_reversa(contexto, gestion):
+    conjunto, _, cliente_residente = contexto
+    secretaria, administracion = gestion
+    caso = abrir(cliente_residente)
+    assert accion(secretaria, caso, "descartar", causal="DUPLICADO", motivo="Ya está reportado.").status_code == 200
+
+    otra_vez = accion(secretaria, caso, "descartar", causal="DUPLICADO", motivo="Ya está reportado.")
+    responder_la_secretaria = accion(secretaria, caso, "responder", respuesta="Sí.")
+    responder_administracion = accion(administracion, caso, "responder", respuesta="Sí.")
+    redirigir = accion(secretaria, caso, "redirigir")
+
+    assert otra_vez.status_code == 409
+    assert responder_la_secretaria.status_code == 403
+    assert (responder_administracion.status_code, redirigir.status_code) == (409, 409)
+    rutas = list(rutas_de_casos(get_resolver().url_patterns))
+    assert rutas, "no se encontraron las rutas de casos"
+    assert not [r for r in rutas if {"reversar", "reabrir", "deshacer"} & set(r[0].replace("/", "-").split("-") + (r[1] or "").split("-"))]
+    with usar_conjunto(conjunto.id):
+        assert Caso.objects.get(pk=caso["id"]).estado == "RECHAZADO"
+
+
+def test_hu24_caso_rechazado_formalmente_cuenta_como_respuesta(contexto, gestion):
+    _, _, cliente_residente = contexto
+    secretaria, _ = gestion
+    caso = abrir(cliente_residente)
+    accion(secretaria, caso, "descartar", causal="NO_ES_COMPETENCIA", motivo="Debe registrarse con mantenimiento.")
+
+    visto = cliente_residente.get(f"/casos/{caso['id']}/").json()
+
+    assert visto["estado"] == "RECHAZADO"
+    assert visto["motivo_rechazo"] == "Debe registrarse con mantenimiento."
+    assert visto["causal_rechazo_nombre"] == "No es competencia de la administración"
+
+
+# HU-22: los filtros de la pestaña de casos
+
+
+def titulos(respuesta):
+    return [caso["titulo"] for caso in respuesta.json()]
+
+
+def test_la_bandeja_de_casos_filtra_por_prioridad_y_estado_sin_cambiar_el_orden(contexto, gestion):
+    _, _, cliente_residente = contexto
+    secretaria, _ = gestion
+    leve = abrir(cliente_residente, titulo="Bombillo")
+    fuga = abrir(cliente_residente, titulo="Fuga")
+    ruido = abrir(cliente_residente, titulo="Ruido")
+    accion(secretaria, fuga, "prioridad", prioridad="URGENTE", justificacion="Se inunda el sótano.")
+    accion(secretaria, ruido, "prioridad", prioridad="URGENTE", justificacion="Es de noche.")
+    accion(secretaria, leve, "descartar", causal="DUPLICADO", motivo="Ya está reportado.")
+
+    urgentes = secretaria.get("/casos/", {"prioridad": "URGENTE"})
+    por_antiguedad = secretaria.get("/casos/", {"prioridad": "URGENTE", "orden": "antiguedad"})
+    rechazados = secretaria.get("/casos/", {"estado": "RECHAZADO"})
+    combinados = secretaria.get("/casos/", {"estado": "ABIERTO", "prioridad": "BAJA"})
+
+    assert titulos(urgentes) == ["Fuga", "Ruido"] and titulos(por_antiguedad) == ["Fuga", "Ruido"]
+    assert titulos(rechazados) == ["Bombillo"]
+    assert titulos(combinados) == []
+
+
+def test_la_bandeja_de_casos_filtra_por_fecha_de_creacion_y_por_solicitante(contexto, otro_residente, gestion):
+    conjunto, _, cliente_residente = contexto
+    secretaria, _ = gestion
+    viejo = abrir(cliente_residente, titulo="Viejo")
+    abrir(cliente_residente, titulo="Nuevo")
+    abrir(otro_residente, titulo="De Lucía")
+    ayer = timezone.now() - timezone.timedelta(days=3)
+    with usar_conjunto(conjunto.id):
+        Caso.objects.filter(pk=viejo["id"]).update(creado_en=ayer)
+    hoy = timezone.localdate().isoformat()
+    hace_dos_dias = (timezone.localdate() - timezone.timedelta(days=2)).isoformat()
+
+    desde_hoy = secretaria.get("/casos/", {"desde": hoy})
+    hasta_anteayer = secretaria.get("/casos/", {"hasta": hace_dos_dias})
+    de_pedro = secretaria.get("/casos/", {"solicitante": "pedro gómez"})
+    de_nadie = secretaria.get("/casos/", {"solicitante": "Zulema"})
+
+    assert sorted(titulos(desde_hoy)) == ["De Lucía", "Nuevo"]
+    assert titulos(hasta_anteayer) == ["Viejo"]
+    assert sorted(titulos(de_pedro)) == ["Nuevo", "Viejo"]
+    assert titulos(de_nadie) == []
+
+
+def test_un_filtro_invalido_de_casos_responde_400_y_no_una_tabla_vacia(contexto, gestion):
+    secretaria, _ = gestion
+
+    estado = secretaria.get("/casos/", {"estado": "OTRO"})
+    prioridad = secretaria.get("/casos/", {"prioridad": "MAXIMA"})
+    fecha = secretaria.get("/casos/", {"desde": "ayer"})
+    invertido = secretaria.get("/casos/", {"desde": "2026-10-10", "hasta": "2026-10-01"})
+
+    assert estado.status_code == 400 and "estado" in estado.json()
+    assert prioridad.status_code == 400 and "prioridad" in prioridad.json()
+    assert fecha.status_code == 400 and "desde" in fecha.json()
+    assert invertido.status_code == 400 and "hasta" in invertido.json()
+
+
+def test_los_filtros_de_casos_no_dejan_ver_los_de_otro_conjunto(contexto, gestion):
+    _, _, cliente_residente = contexto
+    secretaria, _ = gestion
+    abrir(cliente_residente, titulo="Fuga")
+    otro = Conjunto.objects.create(nombre="Altos del Sur")
+    crear_persona(otro, "secretaria@altos.com", "Rosa", rol=Rol.SECRETARIA)
+    de_otro_conjunto = cliente_para("secretaria@altos.com")
+
+    assert titulos(secretaria.get("/casos/", {"solicitante": "Pedro", "prioridad": "NORMAL"})) == ["Fuga"]
+    assert titulos(de_otro_conjunto.get("/casos/", {"solicitante": "Pedro", "prioridad": "NORMAL"})) == []
 
 
 def test_secretaria_redirige_y_no_puede_responder_ni_tocar_lo_ya_redirigido(contexto, gestion):

@@ -17,8 +17,9 @@ from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.comun.aislamiento.vistas import VistaDeConjunto
 from apps.conjuntos.models import Conjunto
 from apps.cuentas.models import TokenDeSesion, Usuario
-from apps.documentos.models import Reglamento
+from apps.documentos.models import Documento
 from apps.ingresos.models import Ingreso
+from apps.infracciones.models import RegistroDeInfraccion
 from apps.notificaciones.models import Notificacion
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
@@ -27,7 +28,7 @@ from apps.reglas.models import Regla
 from apps.reservas.models import Campana, ComprobanteDePago, EstadoSolicitud, Solicitud
 from apps.unidades.models import Agrupacion, TipoVinculo, Unidad, VinculoUnidad
 from apps.pagos.models import Comprobante, PagoDeAdministracion
-from apps.parqueaderos.models import Parqueadero
+from apps.parqueaderos.models import AsignacionParqueadero, Parqueadero
 from apps.visitantes.models import Visitante
 from tests.aislamiento.models import Area
 
@@ -185,13 +186,26 @@ def logo_del_conjunto(otro_conjunto):
 def reglamento_de(otro_conjunto):
     persona = usuario_de(otro_conjunto).persona
     with usar_conjunto(otro_conjunto.id):
-        return Reglamento.objects.create(
-            contenido=b"%PDF-1.7 ajeno", nombre="ajeno.pdf", peso=14, huella="b" * 64, subido_por=persona
+        return Documento.objects.create(
+            tipo="reglamento",
+            contenido=b"%PDF-1.7 ajeno",
+            nombre="ajeno.pdf",
+            peso=14,
+            huella="b" * 64,
+            subido_por=persona,
         )
 
 
 def datos_del_reglamento(otro_conjunto):
-    return reverse("reglamento"), reglamento_de(otro_conjunto).huella
+    return reverse("documento", kwargs={"tipo": "reglamento"}), reglamento_de(otro_conjunto).huella
+
+
+def lista_de_documentos(otro_conjunto):
+    return reverse("documentos"), reglamento_de(otro_conjunto).huella
+
+
+def versiones_del_reglamento(otro_conjunto):
+    return reverse("documento-versiones", kwargs={"tipo": "reglamento"}), str(reglamento_de(otro_conjunto).pk)
 
 
 def subir_reglamento_en(otro_conjunto):
@@ -199,14 +213,19 @@ def subir_reglamento_en(otro_conjunto):
 
     def intacto():
         with usar_conjunto(otro_conjunto.id):
-            return Reglamento.objects.count() == 1
+            return Documento.objects.count() == 1
 
-    return "put", reverse("reglamento"), intacto
+    return "put", reverse("documento", kwargs={"tipo": "reglamento"}), intacto
 
 
 def archivo_del_reglamento(otro_conjunto):
     reglamento_de(otro_conjunto)
-    return reverse("reglamento-archivo")
+    return reverse("documento-archivo", kwargs={"tipo": "reglamento"})
+
+
+def archivo_de_una_version_ajena(otro_conjunto):
+    ajeno = reglamento_de(otro_conjunto)
+    return reverse("documento-version-archivo", kwargs={"tipo": "reglamento", "version_id": ajeno.pk})
 
 
 def unidad_de(otro_conjunto):
@@ -575,6 +594,47 @@ def reportar_pago_en(otro_conjunto):
     return "post", reverse("pago-reportes"), intacto
 
 
+def infraccion_de(otro_conjunto):
+    persona = usuario_de(otro_conjunto).persona
+    unidad = unidad_de(otro_conjunto)
+    with usar_conjunto(otro_conjunto.id):
+        return RegistroDeInfraccion.objects.create(
+            unidad=unidad,
+            descripcion_hecho="Hecho de otro conjunto",
+            fecha_hecho=timezone.localdate(),
+            registrado_por=persona,
+            fecha_notificacion=timezone.now(),
+        )
+
+
+def detalle_de_infraccion(otro_conjunto):
+    return reverse("infraccion-detalle", kwargs={"registro_id": infraccion_de(otro_conjunto).pk})
+
+
+def listado_de_infracciones(otro_conjunto):
+    return reverse("infracciones"), str(infraccion_de(otro_conjunto).pk)
+
+
+def cerrar_infraccion_en(otro_conjunto):
+    registro = infraccion_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return RegistroDeInfraccion.objects.get(pk=registro.pk).cierre_fecha is None
+
+    return "post", reverse("infraccion-cierre", kwargs={"registro_id": registro.pk}), intacto
+
+
+def anular_infraccion_en(otro_conjunto):
+    registro = infraccion_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return not RegistroDeInfraccion.objects.get(pk=registro.pk).anulado
+
+    return "post", reverse("infraccion-anulacion", kwargs={"registro_id": registro.pk}), intacto
+
+
 def parqueadero_de(otro_conjunto):
     creador = usuario_de(otro_conjunto).persona
     with usar_conjunto(otro_conjunto.id):
@@ -585,6 +645,47 @@ def parqueadero_de(otro_conjunto):
 
 def listado_de_parqueaderos(otro_conjunto):
     return reverse("parqueaderos"), str(parqueadero_de(otro_conjunto).pk)
+
+
+def parqueadero_de_residentes_de(otro_conjunto):
+    """Un puesto de residentes asignado a una vivienda del otro conjunto."""
+    creador = usuario_de(otro_conjunto).persona
+    unidad = unidad_de(otro_conjunto)
+    with usar_conjunto(otro_conjunto.id):
+        puesto = Parqueadero.objects.create(
+            codigo=f"R-{Parqueadero.objects.count() + 1:02d}", tipo="residentes", creado_por=creador
+        )
+        AsignacionParqueadero.objects.create(parqueadero=puesto, unidad=unidad, registrado_por=creador)
+    return puesto, unidad
+
+
+def historial_de_parqueadero(otro_conjunto):
+    return reverse("parqueadero-asignaciones", kwargs={"parqueadero_id": parqueadero_de_residentes_de(otro_conjunto)[0].pk})
+
+
+def mis_parqueaderos(otro_conjunto):
+    puesto, _ = parqueadero_de_residentes_de(otro_conjunto)
+    return reverse("parqueaderos-mios"), str(puesto.pk)
+
+
+def asignar_parqueadero_en(otro_conjunto):
+    puesto, unidad = parqueadero_de_residentes_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return AsignacionParqueadero.objects.filter(parqueadero=puesto, vigencia_hasta__isnull=True).count() == 1
+
+    return "post", reverse("parqueadero-asignacion", kwargs={"parqueadero_id": puesto.pk}), intacto
+
+
+def liberar_parqueadero_en(otro_conjunto):
+    puesto, _ = parqueadero_de_residentes_de(otro_conjunto)
+
+    def intacto():
+        with usar_conjunto(otro_conjunto.id):
+            return AsignacionParqueadero.objects.filter(parqueadero=puesto, vigencia_hasta__isnull=True).count() == 1
+
+    return "post", reverse("parqueadero-liberacion", kwargs={"parqueadero_id": puesto.pk}), intacto
 
 
 def desactivar_parqueadero_en(otro_conjunto):
@@ -744,9 +845,11 @@ DETALLES = {
     "regla-detalle": detalle_de_regla,
     "franjas": franjas_de_area_ajena,
     "solicitud-detalle": detalle_de_solicitud,
-    "reglamento-archivo": archivo_del_reglamento,
+    "documento-archivo": archivo_del_reglamento,
+    "documento-version-archivo": archivo_de_una_version_ajena,
     "solicitud-comprobante": comprobante_de_otro_conjunto,
     "pago-comprobante": comprobante_de_pago_ajeno,
+    "infraccion-detalle": detalle_de_infraccion,
 }
 LISTADOS = {
     "solicitudes-bandeja": listado_de_la_bandeja,
@@ -768,11 +871,14 @@ LISTADOS = {
     "solicitudes": listado_de_solicitudes,
     "visitantes": listado_de_visitantes,
     "parqueaderos": listado_de_parqueaderos,
+    "infracciones": listado_de_infracciones,
     "pagos-administracion": tabla_de_pagos,
     "pagos-mios": pagos_mios,
     "ingresos": listado_de_ingresos,
     "ingresos-zonas": zonas_con_ingreso,
-    "reglamento": datos_del_reglamento,
+    "documento": datos_del_reglamento,
+    "documentos": lista_de_documentos,
+    "documento-versiones": versiones_del_reglamento,
 }
 # Rutas de conjunto sin identificador ni listado: actúan sobre el conjunto activo.
 ACCIONES = {
@@ -804,10 +910,12 @@ ACCIONES = {
     "solicitud-pago": declarar_pago_en,
     "solicitud-pago-retirar": retirar_pago_en,
     "solicitud-comprobantes": subir_comprobante_en,
-    "reglamento": subir_reglamento_en,
+    "documento": subir_reglamento_en,
     "ingreso-residentes-buscar": buscar_residente_en,
     "ingreso-salida": salida_en,
     "parqueadero-desactivar": desactivar_parqueadero_en,
+    "infraccion-cierre": cerrar_infraccion_en,
+    "infraccion-anulacion": anular_infraccion_en,
     "pago-confirmacion": confirmar_pago_en,
     "pago-reportes": reportar_pago_en,
     "visitante-salida": salida_de_visitante_en,

@@ -21,6 +21,7 @@ from apps.casos.models import (
 )
 from apps.conjuntos.servicios import tipo_real_de_imagen
 from apps.notificaciones.canal import Aviso, notificar
+from apps.personas.servicios import por_nombre
 from apps.unidades.models import VinculoUnidad
 
 TAMANO_MAXIMO_FOTO = 5 * 1024 * 1024
@@ -85,13 +86,24 @@ def casos_para_bandeja(ver="todos", orden="prioridad", solo_redirigidos=False):
     """Todos los del conjunto, para gestión: primero los abiertos, por prioridad y luego antigüedad.
 
     `orden="antiguedad"` ignora la prioridad por completo: es la salida de emergencia si algo quedó
-    enterrado. El orden no es configurable más allá de eso.
+    enterrado. El orden no es configurable más allá de eso. Los filtros (HU-22) reducen las filas y
+    nunca cambian el orden. `desde` y `hasta` son fechas de creación, inclusive, en la hora local.
     """
     casos = Caso.objects.all()
     if solo_redirigidos:
         casos = casos.filter(estado=EstadoCaso.REDIRIGIDO)
     elif ver == "abiertos":
         casos = casos.filter(estado__in=ABIERTOS)
+    if estado:
+        casos = casos.filter(estado=estado)
+    if prioridad:
+        casos = casos.filter(prioridad=prioridad)
+    if desde:
+        casos = casos.filter(creado_en__date__gte=desde)
+    if hasta:
+        casos = casos.filter(creado_en__date__lte=hasta)
+    if solicitante:
+        casos = por_nombre(casos, solicitante, "autor")
     cerrado = Case(When(estado__in=ABIERTOS, then=Value(0)), default=Value(1), output_field=IntegerField())
     criterios = ["cerrado"]
     if orden != "antiguedad":

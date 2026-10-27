@@ -49,4 +49,4 @@ Dos operaciones distintas, con permiso y lista de motivos propios. Las dos bloqu
 
 La Secretaría **no aprueba**: clasifica y descarta. La base no guarda una `RECHAZADA` sin `categoria_rechazo` (`solicitud_rechazada_con_categoria`).
 
-`GET /reservas/bandeja/` exige `solicitud.bandeja_ver` (Vigilancia no entra) y, como `…/areas/<id>/solicitudes/`, trae primero las que esperan decisión y, entre ellas, la que más lleva esperando: entre reservas no hay prioridad. Cada solicitud trae `completada` (aprobada y con la franja ya terminada), que se calcula y no es un estado guardado.
+`GET /reservas/bandeja/` exige `solicitud.bandeja_ver` (Vigilancia no entra) y, como `…/areas/<id>/solicitudes/`, trae primero las que esperan decisión y, entre ellas, la que más lleva esperando: entre reservas no hay prioridad. Acepta los filtros `estado` (apartada, reservada o rechazada), `area`, `vivienda`, `solicitante`, `desde` y `hasta` (fecha de envío); no cambian el orden, uno inválido responde 400 y no hay filtro de prioridad. Cada solicitud trae `completada` (aprobada y con la franja ya terminada), que se calcula y no es un estado guardado.

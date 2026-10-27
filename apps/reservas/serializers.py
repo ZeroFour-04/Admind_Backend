@@ -113,6 +113,22 @@ class DecisionDeSolicitudSerializer(serializers.Serializer):
         return datos
 
 
+class ConsultarBandejaSerializer(serializers.Serializer):
+    """Los filtros de la pestaña Reservas (HU-22). Sin prioridad: entre reservas manda el orden de llegada."""
+
+    estado = serializers.ChoiceField(choices=("APARTADA", "RESERVADA", "RECHAZADA"), required=False)
+    area = serializers.UUIDField(required=False)
+    vivienda = serializers.UUIDField(required=False)
+    desde = serializers.DateField(required=False)
+    hasta = serializers.DateField(required=False)
+    solicitante = serializers.CharField(max_length=80, required=False, allow_blank=True, trim_whitespace=True)
+
+    def validate(self, datos):
+        if "desde" in datos and "hasta" in datos and datos["desde"] > datos["hasta"]:
+            raise serializers.ValidationError({"hasta": ["La fecha final no puede ser anterior a la inicial."]})
+        return datos
+
+
 class DescarteDeSolicitudSerializer(serializers.Serializer):
     """El descarte de Secretaría: causal de lista cerrada y comentario para el residente, los dos obligatorios."""
 

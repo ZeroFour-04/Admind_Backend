@@ -30,6 +30,7 @@ class TipoDeRegla(models.TextChoices):
     ACOMPANANTES = "ACOMPANANTES", "Acompañantes"
     UNA_RESERVA_POR_DIA = "UNA_RESERVA_POR_DIA", "Una reserva al día"
     SIN_FRANJAS_SEGUIDAS = "SIN_FRANJAS_SEGUIDAS", "Sin franjas seguidas"
+    PARQUEADEROS_POR_VIVIENDA = "PARQUEADEROS_POR_VIVIENDA", "Parqueaderos por vivienda"
     # Retirados el 2026-10-06. Quedan para leer el historial: no se crean ni se editan.
     AFORO = "AFORO", "Aforo"
     FRANJA_HORARIA = "FRANJA_HORARIA", "Franja horaria"
@@ -43,6 +44,7 @@ NIVEL_POR_TIPO = {
     TipoDeRegla.REQUIERE_PAZ_Y_SALVO: Nivel.ALFA,
     TipoDeRegla.DIA_LIMITE_DE_PAGO: Nivel.ALFA,
     TipoDeRegla.ACOMPANANTES: Nivel.ALFA,
+    TipoDeRegla.PARQUEADEROS_POR_VIVIENDA: Nivel.ALFA,
     TipoDeRegla.DIAS_QUE_NO_ABRE: Nivel.BETA,
     TipoDeRegla.CUPO_POR_UNIDAD: Nivel.BETA,
     TipoDeRegla.UNA_RESERVA_POR_DIA: Nivel.BETA,
@@ -57,6 +59,8 @@ MODOS_POR_TIPO = {
     # Ningún modo: no restringe por sí sola, la lee `pagos` para saber desde cuándo hay mora.
     TipoDeRegla.DIA_LIMITE_DE_PAGO: [],
     TipoDeRegla.ACOMPANANTES: [MODO_INGRESO],
+    # Ningún modo: ningún evaluador de reservas ni de ingresos la toca, la lee la asignación de parqueaderos (HU-34).
+    TipoDeRegla.PARQUEADEROS_POR_VIVIENDA: [],
     TipoDeRegla.DIAS_QUE_NO_ABRE: [MODO_RESERVA, MODO_INGRESO],
     TipoDeRegla.CUPO_POR_UNIDAD: [MODO_RESERVA],
     TipoDeRegla.UNA_RESERVA_POR_DIA: [MODO_RESERVA],
@@ -88,6 +92,11 @@ DESCRIPCION_POR_TIPO = {
         "Cuántos acompañantes puede tener adentro una misma vivienda a la vez, en las áreas con ingreso. Con 2, "
         "una vivienda tiene como máximo 2 acompañantes dentro al mismo tiempo. Con 0 no se permiten. Cada "
         "acompañante ocupa un puesto del aforo."
+    ),
+    TipoDeRegla.PARQUEADEROS_POR_VIVIENDA: (
+        "Cuántos parqueaderos de residentes puede tener asignados una misma vivienda, por tipo de vehículo. "
+        "Con carro 1, moto 1 y bicicleta 0, una vivienda tiene un puesto de carro, uno de moto y ninguno de "
+        "bicicleta. Sin esta regla no hay tope. Solo limita las asignaciones nuevas."
     ),
     TipoDeRegla.DIAS_QUE_NO_ABRE: (
         "Días de la semana, fechas o periodos en que el área no presta servicio. Cada uno lleva su motivo, "
@@ -227,6 +236,8 @@ PARAMETROS_POR_TIPO = {
     # Sin parámetros: definirlas es activarlas. Sin definir, el área sigue como estaba; así solo restringen.
     TipoDeRegla.UNA_RESERVA_POR_DIA: {},
     TipoDeRegla.SIN_FRANJAS_SEGUIDAS: {},
+    # Con 0 no se asigna ningún puesto de ese vehículo: así la regla, como todas, solo restringe.
+    TipoDeRegla.PARQUEADEROS_POR_VIVIENDA: {"carro": entero(0), "moto": entero(0), "bicicleta": entero(0)},
 }
 
 
@@ -297,6 +308,8 @@ def describir(tipo, p):
         return f"Máximo {p['maximo']} {'acompañante' if p['maximo'] == 1 else 'acompañantes'} por vivienda a la vez"
     if tipo == TipoDeRegla.DIA_LIMITE_DE_PAGO:
         return f"La administración se paga hasta el día {p['dia']} de cada mes"
+    if tipo == TipoDeRegla.PARQUEADEROS_POR_VIVIENDA:
+        return f"Máximo {p['carro']} de carro, {p['moto']} de moto y {p['bicicleta']} de bicicleta por vivienda"
     if tipo == TipoDeRegla.UNA_RESERVA_POR_DIA:
         return "Solo una reserva al día"
     if tipo == TipoDeRegla.SIN_FRANJAS_SEGUIDAS:

@@ -35,4 +35,5 @@ urlpatterns = [
     path("documentos/", include("apps.documentos.urls")),
     path("casos/", include("apps.casos.urls")),
     path("citas/", include("apps.citas.urls")),
+    path("infracciones/", include("apps.infracciones.urls")),
 ]

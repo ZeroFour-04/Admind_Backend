@@ -849,6 +849,7 @@ DETALLES = {
     "documento-version-archivo": archivo_de_una_version_ajena,
     "solicitud-comprobante": comprobante_de_otro_conjunto,
     "pago-comprobante": comprobante_de_pago_ajeno,
+    "parqueadero-asignaciones": historial_de_parqueadero,
     "infraccion-detalle": detalle_de_infraccion,
 }
 LISTADOS = {
@@ -871,6 +872,7 @@ LISTADOS = {
     "solicitudes": listado_de_solicitudes,
     "visitantes": listado_de_visitantes,
     "parqueaderos": listado_de_parqueaderos,
+    "parqueaderos-mios": mis_parqueaderos,
     "infracciones": listado_de_infracciones,
     "pagos-administracion": tabla_de_pagos,
     "pagos-mios": pagos_mios,
@@ -914,6 +916,8 @@ ACCIONES = {
     "ingreso-residentes-buscar": buscar_residente_en,
     "ingreso-salida": salida_en,
     "parqueadero-desactivar": desactivar_parqueadero_en,
+    "parqueadero-asignacion": asignar_parqueadero_en,
+    "parqueadero-liberacion": liberar_parqueadero_en,
     "infraccion-cierre": cerrar_infraccion_en,
     "infraccion-anulacion": anular_infraccion_en,
     "pago-confirmacion": confirmar_pago_en,

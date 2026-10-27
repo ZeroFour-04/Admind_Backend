@@ -63,6 +63,7 @@ INSTALLED_APPS = [
     "apps.documentos",
     "apps.casos",
     "apps.citas",
+    "apps.infracciones",
 ]
 AUTH_USER_MODEL = "cuentas.Usuario"
 

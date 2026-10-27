@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from apps.casos.models import Caso, CausalDeDescarte, FotoDeCaso, PrioridadCaso
+from apps.casos.models import Caso, CausalDeDescarte, EstadoCaso, FotoDeCaso, PrioridadCaso
 
 
 class CrearCasoSerializer(serializers.Serializer):
@@ -45,6 +45,16 @@ class PriorizarCasoSerializer(serializers.Serializer):
 class ConsultarCasosSerializer(serializers.Serializer):
     ver = serializers.ChoiceField(choices=("todos", "abiertos"), required=False, default="todos")
     orden = serializers.ChoiceField(choices=("prioridad", "antiguedad"), required=False, default="prioridad")
+    estado = serializers.ChoiceField(choices=EstadoCaso.choices, required=False)
+    prioridad = serializers.ChoiceField(choices=PrioridadCaso.choices, required=False)
+    desde = serializers.DateField(required=False)
+    hasta = serializers.DateField(required=False)
+    solicitante = serializers.CharField(max_length=80, required=False, allow_blank=True, trim_whitespace=True)
+
+    def validate(self, datos):
+        if "desde" in datos and "hasta" in datos and datos["desde"] > datos["hasta"]:
+            raise serializers.ValidationError({"hasta": ["La fecha final no puede ser anterior a la inicial."]})
+        return datos
 
 
 class CasoSerializer(serializers.ModelSerializer):

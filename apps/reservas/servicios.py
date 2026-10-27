@@ -21,6 +21,7 @@ from apps.comun.bloqueo import bloqueo
 from apps.notificaciones.canal import Aviso, notificar
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
+from apps.personas.servicios import por_nombre
 from apps.reglas.catalogo import TipoDeRegla
 from apps.reglas.evaluador import evaluar
 from apps.reglas.servicios import reglas_vigentes
@@ -293,14 +294,30 @@ def reservas_por_cumplir(area):
     ).count()
 
 
-def solicitudes_para_bandeja():
-    """Reservas enviadas o decididas del conjunto activo, para la pestaña general de Solicitudes."""
+def solicitudes_para_bandeja(estado=None, area=None, vivienda=None, desde=None, hasta=None, solicitante=""):
+    """Reservas enviadas o decididas del conjunto activo, para la pestaña general de Solicitudes.
+
+    Los filtros (HU-22) reducen las filas y nunca cambian el orden por antigüedad. `desde` y `hasta`
+    son fechas de envío, inclusive, en la hora local.
+    """
     consulta = (
         Solicitud.objects.filter(
             estado__in=[EstadoSolicitud.APARTADA, EstadoSolicitud.RESERVADA, EstadoSolicitud.RECHAZADA]
         )
         .select_related("area", "persona", "unidad", "decidida_por", "pago_declarado_por")
     )
+    if estado:
+        consulta = consulta.filter(estado=estado)
+    if area:
+        consulta = consulta.filter(area_id=area)
+    if vivienda:
+        consulta = consulta.filter(unidad_id=vivienda)
+    if desde:
+        consulta = consulta.filter(enviada_en__date__gte=desde)
+    if hasta:
+        consulta = consulta.filter(enviada_en__date__lte=hasta)
+    if solicitante:
+        consulta = por_nombre(consulta, solicitante, "persona")
     return con_comprobantes(por_antiguedad(consulta))
 
 

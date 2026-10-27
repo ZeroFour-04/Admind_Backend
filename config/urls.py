@@ -34,4 +34,5 @@ urlpatterns = [
     path("visitantes/", include("apps.visitantes.urls")),
     path("documentos/", include("apps.documentos.urls")),
     path("casos/", include("apps.casos.urls")),
+    path("infracciones/", include("apps.infracciones.urls")),
 ]

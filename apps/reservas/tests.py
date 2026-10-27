@@ -10,6 +10,7 @@ import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError, connection, transaction
 from django.test.utils import CaptureQueriesContext
+from django.urls import URLResolver, get_resolver
 from django.utils import timezone
 from django.utils.formats import date_format
 from rest_framework.test import APIClient
@@ -25,7 +26,7 @@ from apps.permisos.models import Asignacion
 from apps.personas.models import Persona, TipoDocumento
 from apps.reglas import mora
 from apps.reglas.models import Regla
-from apps.reservas.models import ComprobanteDePago, Solicitud
+from apps.reservas.models import Campana, ComprobanteDePago, Solicitud
 from apps.reservas.servicios import avisos
 from apps.unidades.models import TipoVinculo, Unidad, VinculoUnidad
 
@@ -523,6 +524,184 @@ def test_el_descarte_exige_causal_de_forma_y_comentario_y_es_solo_de_secretaria(
     assert con_otro.status_code == 400 and "causal" in con_otro.json()
     assert de_administracion.status_code == 403
     assert (primera.status_code, repetida.status_code) == (200, 409)
+
+
+# HU-24: el rechazo formal de la Secretaría, un criterio por prueba
+
+
+def activar_campana(cliente, area, hora="08:00", fecha=MANANA):
+    return cliente.post("/reservas/campanas/", {"area": str(area.id), "fecha": str(fecha), "hora_inicio": hora}, format="json")
+
+
+def rutas_de_reservas(patrones):
+    for patron in patrones:
+        if isinstance(patron, URLResolver):
+            yield from rutas_de_reservas(patron.url_patterns)
+        elif str(patron.callback.__module__).startswith("apps.reservas"):
+            yield str(patron.pattern), patron.name
+
+
+def test_hu24_rechazo_sin_categoria_o_sin_explicacion_falla(torres, salon, pedro, apartamentos, administracion):
+    enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
+    secretaria = cliente_para("secretaria@torres.com")
+
+    sin_causal = descarte_de(secretaria, enviada["id"], comentario="Falta decir cuántas personas asisten.")
+    sin_comentario = descarte_de(secretaria, enviada["id"], causal="DATOS_INCOMPLETOS", comentario="   ")
+    con_otro = descarte_de(secretaria, enviada["id"], causal="OTRO", comentario="No me parece.")
+
+    assert sin_causal.status_code == 400 and "causal" in sin_causal.json()
+    assert sin_comentario.status_code == 400 and "comentario" in sin_comentario.json()
+    assert con_otro.status_code == 400 and "causal" in con_otro.json()
+    with usar_conjunto(torres.id):
+        assert Solicitud.objects.get(pk=enviada["id"]).estado == "APARTADA"
+    assert avisos_de_la_decision(torres, enviada["id"]) == []
+
+
+def test_hu24_rechazo_formal_libera_la_franja_y_avisa_a_la_campana(
+    torres, salon, pedro, lucia, apartamentos, administracion
+):
+    enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
+    campana = activar_campana(lucia, salon).json()
+    secretaria = cliente_para("secretaria@torres.com")
+
+    descarte = descarte_de(secretaria, enviada["id"], causal="DATOS_INCOMPLETOS", comentario="Faltan los asistentes.")
+
+    assert descarte.status_code == 200
+    assert franjas(lucia, salon)["08:00"] == "libre"
+    with usar_conjunto(torres.id):
+        (aviso,) = Notificacion.objects.filter(origen="reserva.disponible", referencia=campana["id"])
+        assert aviso.persona.nombres == "Lucía" and aviso.titulo == "Zona disponible"
+        assert Campana.objects.get(pk=campana["id"]).activa is False
+
+
+def test_hu24_el_residente_vuelve_a_tomar_la_franja_sin_gastar_oportunidad(
+    torres, salon, pedro, apartamentos, administracion
+):
+    enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
+    secretaria = cliente_para("secretaria@torres.com")
+    descarte_de(secretaria, enviada["id"], causal="DATOS_INCOMPLETOS", comentario="Faltan los asistentes.")
+
+    de_nuevo = tomar(pedro, salon)
+
+    assert de_nuevo.status_code == 201
+    # Solo el vencimiento gasta oportunidad (R9): el descarte queda en RECHAZADA y nunca en EXPIRADA.
+    # El contador de oportunidades llega con HU-19; hoy se prueba lo observable.
+    with usar_conjunto(torres.id):
+        assert Solicitud.objects.get(pk=enviada["id"]).estado == "RECHAZADA"
+        assert not Solicitud.objects.filter(persona__nombres="Pedro", estado="EXPIRADA").exists()
+
+
+def test_hu24_rechazo_formal_no_se_aprueba_ni_se_reversa(torres, salon, pedro, apartamentos, administracion):
+    enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
+    secretaria = cliente_para("secretaria@torres.com")
+    andres = cliente_para("admin1@torres.com")
+    assert descarte_de(secretaria, enviada["id"], causal="SOLICITUD_DUPLICADA", comentario="Ya hay otra.").status_code == 200
+
+    otra_vez = descarte_de(secretaria, enviada["id"], causal="SOLICITUD_DUPLICADA", comentario="Ya hay otra.")
+    aprobar_la_secretaria = decision_de(secretaria, enviada["id"], decision="RESERVADA", motivo="Sí.")
+    aprobar_administracion = decision_de(andres, enviada["id"], decision="RESERVADA", motivo="Sí.")
+
+    assert otra_vez.status_code == 409
+    assert aprobar_la_secretaria.status_code == 403
+    assert aprobar_administracion.status_code == 409
+    rutas = list(rutas_de_reservas(get_resolver().url_patterns))
+    assert rutas, "no se encontraron las rutas de reservas"
+    assert not [r for r in rutas if {"reversar", "reabrir", "deshacer"} & set(r[0].replace("/", "-").split("-") + (r[1] or "").split("-"))]
+    with usar_conjunto(torres.id):
+        assert Solicitud.objects.get(pk=enviada["id"]).estado == "RECHAZADA"
+
+
+# HU-22: los filtros de la pestaña de reservas
+
+
+def ids(respuesta):
+    return [solicitud["id"] for solicitud in respuesta.json()]
+
+
+def test_la_bandeja_de_reservas_filtra_por_estado_zona_vivienda_y_solicitante(
+    torres, salon, pedro, lucia, apartamentos, administracion
+):
+    piscina = crear_area(torres, "Piscina")
+    del_salon = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
+    de_la_piscina = enviar(lucia, tomar(lucia, piscina).json()["id"], apartamentos[1]).json()
+    secretaria = cliente_para("secretaria@torres.com")
+    descarte_de(secretaria, de_la_piscina["id"], causal="DATOS_INCOMPLETOS", comentario="Falta información.")
+
+    apartadas = secretaria.get("/reservas/bandeja/", {"estado": "APARTADA"})
+    rechazadas = secretaria.get("/reservas/bandeja/", {"estado": "RECHAZADA"})
+    de_la_zona = secretaria.get("/reservas/bandeja/", {"area": str(salon.id)})
+    de_la_vivienda = secretaria.get("/reservas/bandeja/", {"vivienda": str(apartamentos[1].id)})
+    de_lucia = secretaria.get("/reservas/bandeja/", {"solicitante": "lucía"})
+
+    assert ids(apartadas) == [del_salon["id"]] and ids(rechazadas) == [de_la_piscina["id"]]
+    assert ids(de_la_zona) == [del_salon["id"]]
+    assert ids(de_la_vivienda) == [de_la_piscina["id"]] and ids(de_lucia) == [de_la_piscina["id"]]
+
+
+def test_la_bandeja_de_reservas_filtra_por_fecha_de_envio_y_conserva_la_antiguedad(
+    torres, salon, pedro, lucia, apartamentos, administracion
+):
+    primera = enviar(pedro, tomar(pedro, salon, "08:00").json()["id"], apartamentos[0]).json()
+    segunda = enviar(lucia, tomar(lucia, salon, "12:00").json()["id"], apartamentos[1]).json()
+    secretaria = cliente_para("secretaria@torres.com")
+    hace_tres_dias = timezone.now() - timedelta(days=3)
+    with usar_conjunto(torres.id):
+        Solicitud.objects.filter(pk=primera["id"]).update(enviada_en=hace_tres_dias)
+    hoy = timezone.localdate().isoformat()
+    anteayer = (timezone.localdate() - timedelta(days=2)).isoformat()
+
+    sin_filtro = secretaria.get("/reservas/bandeja/")
+    desde_hoy = secretaria.get("/reservas/bandeja/", {"desde": hoy})
+    hasta_anteayer = secretaria.get("/reservas/bandeja/", {"hasta": anteayer})
+
+    assert ids(sin_filtro) == [primera["id"], segunda["id"]]
+    assert ids(desde_hoy) == [segunda["id"]] and ids(hasta_anteayer) == [primera["id"]]
+
+
+def test_un_filtro_invalido_de_reservas_responde_400_y_la_prioridad_no_existe(
+    torres, salon, pedro, apartamentos, administracion
+):
+    enviada = enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0]).json()
+    secretaria = cliente_para("secretaria@torres.com")
+
+    estado = secretaria.get("/reservas/bandeja/", {"estado": "EXPIRADA"})
+    area = secretaria.get("/reservas/bandeja/", {"area": "no-es-un-id"})
+    fecha = secretaria.get("/reservas/bandeja/", {"hasta": "mañana"})
+    invertido = secretaria.get("/reservas/bandeja/", {"desde": "2026-10-10", "hasta": "2026-10-01"})
+    con_prioridad = secretaria.get("/reservas/bandeja/", {"prioridad": "URGENTE"})
+
+    assert [r.status_code for r in (estado, area, fecha, invertido)] == [400, 400, 400, 400]
+    # Entre reservas no hay prioridad (R9): el parámetro se ignora como cualquier otro desconocido.
+    assert con_prioridad.status_code == 200 and ids(con_prioridad) == [enviada["id"]]
+
+
+def test_los_filtros_de_reservas_no_dejan_ver_las_de_otro_conjunto(torres, salon, pedro, apartamentos, administracion):
+    enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0])
+    otro = Conjunto.objects.create(nombre="Altos del Sur")
+    crear_usuario("secretaria@altos.com", "Rosa", Rol.SECRETARIA, otro)
+    de_otro_conjunto = cliente_para("secretaria@altos.com")
+
+    respuesta = de_otro_conjunto.get(
+        "/reservas/bandeja/", {"area": str(salon.id), "vivienda": str(apartamentos[0].id), "solicitante": "Pedro"}
+    )
+
+    assert respuesta.status_code == 200 and respuesta.json() == []
+
+
+def test_hu22_sin_2fa_se_exige_configurarlo_en_las_dos_bandejas(torres, salon, pedro, apartamentos, administracion):
+    enviar(pedro, tomar(pedro, salon).json()["id"], apartamentos[0])
+    sin_segundo_factor = APIClient()
+    respuesta = sin_segundo_factor.post(
+        "/auth/login/", {"correo": "secretaria@torres.com", "contrasena": CONTRASENA}, format="json"
+    )
+    sin_segundo_factor.credentials(HTTP_AUTHORIZATION=f"Token {respuesta.json()['token']}")
+
+    reservas = sin_segundo_factor.get("/reservas/bandeja/", {"estado": "APARTADA"})
+    casos = sin_segundo_factor.get("/casos/", {"prioridad": "URGENTE"})
+
+    # Los filtros no son una puerta lateral: el permiso sensible se exige antes de mirarlos.
+    assert (reservas.status_code, casos.status_code) == (403, 403)
+    assert cliente_para("secretaria@torres.com").get("/reservas/bandeja/", {"estado": "APARTADA"}).status_code == 200
 
 
 def test_no_se_puede_decidir_dos_veces_ni_consultar_solicitudes_de_otro_area(

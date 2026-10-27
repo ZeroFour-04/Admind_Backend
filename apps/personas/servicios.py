@@ -5,6 +5,7 @@ queda en la auditoría y tiene un límite por administrador (plan D6).
 """
 from datetime import timedelta
 
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.auditoria import servicios as auditoria
@@ -22,6 +23,18 @@ class LimiteDeBusquedas(Exception):
 
 class PersonaNoEncontrada(Exception):
     """No existe una persona con ese identificador."""
+
+
+def por_nombre(consulta, texto, campo):
+    """Deja las filas cuya persona (`campo` es la relación) tiene cada palabra del texto en sus nombres o apellidos.
+
+    Es un filtro de una bandeja, no una búsqueda de personas: sigue dentro del conjunto activo.
+    """
+    for palabra in texto.split():
+        consulta = consulta.filter(
+            Q(**{f"{campo}__nombres__icontains": palabra}) | Q(**{f"{campo}__apellidos__icontains": palabra})
+        )
+    return consulta
 
 
 def buscar(actor, tipo_documento, numero_documento):

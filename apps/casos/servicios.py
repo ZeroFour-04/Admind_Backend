@@ -82,9 +82,7 @@ def casos_de(persona):
     return _casos_con_detalles(Caso.objects.filter(autor=persona).order_by("-creado_en"))
 
 
-def casos_para_bandeja(
-    ver="todos", orden="prioridad", estado=None, prioridad=None, desde=None, hasta=None, solicitante=""
-):
+def casos_para_bandeja(ver="todos", orden="prioridad", solo_redirigidos=False):
     """Todos los del conjunto, para gestión: primero los abiertos, por prioridad y luego antigüedad.
 
     `orden="antiguedad"` ignora la prioridad por completo: es la salida de emergencia si algo quedó
@@ -92,7 +90,9 @@ def casos_para_bandeja(
     nunca cambian el orden. `desde` y `hasta` son fechas de creación, inclusive, en la hora local.
     """
     casos = Caso.objects.all()
-    if ver == "abiertos":
+    if solo_redirigidos:
+        casos = casos.filter(estado=EstadoCaso.REDIRIGIDO)
+    elif ver == "abiertos":
         casos = casos.filter(estado__in=ABIERTOS)
     if estado:
         casos = casos.filter(estado=estado)
@@ -216,22 +216,32 @@ def descartar(actor, caso_id, causal, comentario):
 
 
 def responder(actor, caso_id, respuesta):
-    """Administración lo resuelve. Sin respuesta escrita no se cierra."""
+    """Administración resuelve solo casos que la Secretaría ya redirigió."""
     respuesta = respuesta.strip()
     if not respuesta:
         raise ValueError("Escribe la respuesta para el residente.")
     return _pasar(
-        actor, caso_id, desde=ABIERTOS, hacia=EstadoCaso.RESUELTO, accion="caso.responder", respuesta=respuesta
+        actor,
+        caso_id,
+        desde=[EstadoCaso.REDIRIGIDO],
+        hacia=EstadoCaso.RESUELTO,
+        accion="caso.responder",
+        respuesta=respuesta,
     )
 
 
 def rechazar(actor, caso_id, motivo):
-    """Administración lo rechaza de fondo. El motivo cuenta como la respuesta obligatoria."""
+    """Administración rechaza solo casos que la Secretaría ya redirigió."""
     motivo = motivo.strip()
     if not motivo:
         raise ValueError("Escribe la razón del rechazo.")
     return _pasar(
-        actor, caso_id, desde=ABIERTOS, hacia=EstadoCaso.RECHAZADO, accion="caso.rechazar", motivo_rechazo=motivo
+        actor,
+        caso_id,
+        desde=[EstadoCaso.REDIRIGIDO],
+        hacia=EstadoCaso.RECHAZADO,
+        accion="caso.rechazar",
+        motivo_rechazo=motivo,
     )
 
 

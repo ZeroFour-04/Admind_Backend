@@ -1,6 +1,6 @@
 # casos
 
-El residente crea un caso con título, descripción y una imagen opcional. La imagen se valida por firma y tamaño, y se almacena separada del registro del caso. La Secretaría clasifica (toma, prioriza, descarta por causal formal o redirige) y la Administración decide (responde o rechaza). Administración ve y atiende todos los casos, también los que nadie le redirigió: el sistema funciona con cero secretarías.
+El residente crea un caso con título, descripción y una imagen opcional. La imagen se valida por firma y tamaño, y se almacena separada del registro del caso. La Secretaría clasifica (toma, prioriza, descarta por causal formal o redirige) y la Administración decide (responde o rechaza). La Administración solo ve y atiende los casos que la Secretaría ya le redirigió; si no hubo redirección, no aparecen en su bandeja.
 
 ## El ciclo de un caso (HU-29)
 

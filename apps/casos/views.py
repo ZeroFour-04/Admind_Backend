@@ -41,6 +41,8 @@ class CasosView(VistaDeConjunto):
         consulta = ConsultarCasosSerializer(data=request.query_params)
         consulta.is_valid(raise_exception=True)
         casos = servicios.casos_para_bandeja(**consulta.validated_data)
+        if tiene_permiso_en_conjunto(request, "caso.responder") and not tiene_permiso_en_conjunto(request, "caso.gestionar"):
+            casos = casos.filter(estado=servicios.EstadoCaso.REDIRIGIDO)
         return Response(CasoParaGestionSerializer(casos, many=True).data)
 
     def post(self, request):
@@ -69,6 +71,12 @@ class DetalleDeCasoView(VistaDeConjunto):
         persona = None if ve_todos(request) else request.user.persona
         caso = servicios.detalle(caso_id, persona)
         if caso is None:
+            raise NotFound()
+        if (
+            tiene_permiso_en_conjunto(request, "caso.responder")
+            and not tiene_permiso_en_conjunto(request, "caso.gestionar")
+            and caso.estado != servicios.EstadoCaso.REDIRIGIDO
+        ):
             raise NotFound()
         return Response(serializar(request, caso))
 
@@ -152,5 +160,11 @@ class FotoDeCasoView(VistaDeConjunto):
         exigir_permiso(request, "caso.crear", "caso.ver_todos")
         foto = servicios.foto_visible(request.user.persona, caso_id, foto_id, ve_todos(request))
         if foto is None or foto.tipo not in TIPOS_DE_FOTO:
+            raise NotFound()
+        if (
+            tiene_permiso_en_conjunto(request, "caso.responder")
+            and not tiene_permiso_en_conjunto(request, "caso.gestionar")
+            and foto.caso.estado != servicios.EstadoCaso.REDIRIGIDO
+        ):
             raise NotFound()
         return HttpResponse(bytes(foto.contenido), content_type=foto.tipo)

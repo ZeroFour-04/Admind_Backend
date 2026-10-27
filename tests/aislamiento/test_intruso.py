@@ -16,7 +16,7 @@ from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.comun.aislamiento.vistas import VistaDeConjunto
 from apps.conjuntos.models import Conjunto
 from apps.cuentas.models import TokenDeSesion, Usuario
-from apps.documentos.models import Reglamento
+from apps.documentos.models import Documento
 from apps.ingresos.models import Ingreso
 from apps.infracciones.models import RegistroDeInfraccion
 from apps.notificaciones.models import Notificacion
@@ -185,13 +185,26 @@ def logo_del_conjunto(otro_conjunto):
 def reglamento_de(otro_conjunto):
     persona = usuario_de(otro_conjunto).persona
     with usar_conjunto(otro_conjunto.id):
-        return Reglamento.objects.create(
-            contenido=b"%PDF-1.7 ajeno", nombre="ajeno.pdf", peso=14, huella="b" * 64, subido_por=persona
+        return Documento.objects.create(
+            tipo="reglamento",
+            contenido=b"%PDF-1.7 ajeno",
+            nombre="ajeno.pdf",
+            peso=14,
+            huella="b" * 64,
+            subido_por=persona,
         )
 
 
 def datos_del_reglamento(otro_conjunto):
-    return reverse("reglamento"), reglamento_de(otro_conjunto).huella
+    return reverse("documento", kwargs={"tipo": "reglamento"}), reglamento_de(otro_conjunto).huella
+
+
+def lista_de_documentos(otro_conjunto):
+    return reverse("documentos"), reglamento_de(otro_conjunto).huella
+
+
+def versiones_del_reglamento(otro_conjunto):
+    return reverse("documento-versiones", kwargs={"tipo": "reglamento"}), str(reglamento_de(otro_conjunto).pk)
 
 
 def subir_reglamento_en(otro_conjunto):
@@ -199,14 +212,19 @@ def subir_reglamento_en(otro_conjunto):
 
     def intacto():
         with usar_conjunto(otro_conjunto.id):
-            return Reglamento.objects.count() == 1
+            return Documento.objects.count() == 1
 
-    return "put", reverse("reglamento"), intacto
+    return "put", reverse("documento", kwargs={"tipo": "reglamento"}), intacto
 
 
 def archivo_del_reglamento(otro_conjunto):
     reglamento_de(otro_conjunto)
-    return reverse("reglamento-archivo")
+    return reverse("documento-archivo", kwargs={"tipo": "reglamento"})
+
+
+def archivo_de_una_version_ajena(otro_conjunto):
+    ajeno = reglamento_de(otro_conjunto)
+    return reverse("documento-version-archivo", kwargs={"tipo": "reglamento", "version_id": ajeno.pk})
 
 
 def unidad_de(otro_conjunto):
@@ -751,7 +769,8 @@ DETALLES = {
     "regla-detalle": detalle_de_regla,
     "franjas": franjas_de_area_ajena,
     "solicitud-detalle": detalle_de_solicitud,
-    "reglamento-archivo": archivo_del_reglamento,
+    "documento-archivo": archivo_del_reglamento,
+    "documento-version-archivo": archivo_de_una_version_ajena,
     "solicitud-comprobante": comprobante_de_otro_conjunto,
     "pago-comprobante": comprobante_de_pago_ajeno,
     "infraccion-detalle": detalle_de_infraccion,
@@ -778,7 +797,9 @@ LISTADOS = {
     "pagos-mios": pagos_mios,
     "ingresos": listado_de_ingresos,
     "ingresos-zonas": zonas_con_ingreso,
-    "reglamento": datos_del_reglamento,
+    "documento": datos_del_reglamento,
+    "documentos": lista_de_documentos,
+    "documento-versiones": versiones_del_reglamento,
 }
 # Rutas de conjunto sin identificador ni listado: actúan sobre el conjunto activo.
 ACCIONES = {
@@ -810,7 +831,7 @@ ACCIONES = {
     "solicitud-pago": declarar_pago_en,
     "solicitud-pago-retirar": retirar_pago_en,
     "solicitud-comprobantes": subir_comprobante_en,
-    "reglamento": subir_reglamento_en,
+    "documento": subir_reglamento_en,
     "ingreso-residentes-buscar": buscar_residente_en,
     "ingreso-salida": salida_en,
     "parqueadero-desactivar": desactivar_parqueadero_en,

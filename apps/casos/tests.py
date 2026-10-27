@@ -168,15 +168,16 @@ def test_gestion_ve_todos_los_casos_con_residente_apartamento_y_fecha(contexto, 
         )
 
     de_secretaria = secretaria.get("/casos/")
-    de_administracion = administracion.get("/casos/")
-
     assert de_secretaria.status_code == 200
     (listado,) = de_secretaria.json()
     assert {campo: listado[campo] for campo in caso} == {**caso, "apartamento": "Torre 1 - Apto 402"}
     assert (listado["autor"], listado["estado_nombre"], listado["prioridad_nombre"]) == (
         "Pedro Gómez", "Por revisar", "Normal"
     )
-    # Administración los ve sin que nadie se los redirija: el sistema funciona con cero secretarías.
+    assert administracion.get("/casos/").json() == []
+
+    accion(secretaria, caso, "redirigir")
+    de_administracion = administracion.get("/casos/")
     assert [item["id"] for item in de_administracion.json()] == [caso["id"]]
 
 
@@ -309,8 +310,9 @@ def test_secretaria_redirige_y_no_puede_responder_ni_tocar_lo_ya_redirigido(cont
 
 def test_un_caso_no_se_resuelve_sin_respuesta_escrita(contexto, gestion):
     conjunto, _, cliente_residente = contexto
-    _, administracion = gestion
+    secretaria, administracion = gestion
     caso = abrir(cliente_residente)
+    accion(secretaria, caso, "redirigir")
 
     vacia = accion(administracion, caso, "responder", respuesta="   ")
     sin_campo = accion(administracion, caso, "responder")
@@ -318,7 +320,7 @@ def test_un_caso_no_se_resuelve_sin_respuesta_escrita(contexto, gestion):
     assert vacia.status_code == 400 and "respuesta" in vacia.json()
     assert sin_campo.status_code == 400
     with usar_conjunto(conjunto.id):
-        assert Caso.objects.get(pk=caso["id"]).estado == "ABIERTO"
+        assert Caso.objects.get(pk=caso["id"]).estado == "REDIRIGIDO"
         with pytest.raises(IntegrityError), transaction.atomic():
             Caso.objects.filter(pk=caso["id"]).update(estado="RESUELTO")
 
@@ -345,8 +347,8 @@ def test_administracion_responde_un_caso_redirigido_y_queda_resuelto(contexto, g
     assert registro.antes == {"estado": "REDIRIGIDO"}
 
 
-def test_administracion_atiende_un_caso_sin_que_nadie_lo_redirija(contexto, gestion):
-    _, _, cliente_residente = contexto
+def test_administracion_solo_puede_responder_y_rechazar_casos_redirigidos(contexto, gestion):
+    conjunto, _, cliente_residente = contexto
     _, administracion = gestion
     resuelto = abrir(cliente_residente)
     rechazado = abrir(cliente_residente, "Ruido", "Hay ruidos fuera de horario.")
@@ -355,12 +357,12 @@ def test_administracion_atiende_un_caso_sin_que_nadie_lo_redirija(contexto, gest
     sin_motivo = accion(administracion, rechazado, "rechazar", motivo="  ")
     rechazo = accion(administracion, rechazado, "rechazar", motivo="No es un asunto de convivencia.")
 
-    assert (respuesta.status_code, respuesta.json()["estado"]) == (200, "RESUELTO")
+    assert respuesta.status_code == 409
     assert sin_motivo.status_code == 400
-    # El rechazo con motivo cuenta como la respuesta obligatoria, y no lleva causal de Secretaría.
-    assert (rechazo.json()["estado"], rechazo.json()["motivo_rechazo"], rechazo.json()["causal_rechazo"]) == (
-        "RECHAZADO", "No es un asunto de convivencia.", ""
-    )
+    assert rechazo.status_code == 409
+    with usar_conjunto(conjunto.id):
+        assert Caso.objects.get(pk=resuelto["id"]).estado == "ABIERTO"
+        assert Caso.objects.get(pk=rechazado["id"]).estado == "ABIERTO"
 
 
 def test_la_prioridad_urgente_exige_justificacion_y_queda_en_auditoria(contexto, gestion):
@@ -396,19 +398,21 @@ def test_la_bandeja_ordena_por_prioridad_y_luego_por_antiguedad(contexto, gestio
     segundo = abrir(cliente_residente, "Segundo", "Llegó después.")
     tercero = abrir(cliente_residente, "Tercero", "El más reciente.")
     accion(secretaria, tercero, "prioridad", prioridad="ALTA")
+    accion(secretaria, segundo, "prioridad", prioridad="URGENTE", justificacion="Revisión urgente por riesgo de seguridad.")
+    accion(secretaria, primero, "redirigir")
     accion(administracion, primero, "responder", respuesta="Listo.")
 
     def orden(consulta=""):
         return [caso["titulo"] for caso in secretaria.get(f"/casos/{consulta}").json()]
 
     # Los abiertos primero; entre ellos la prioridad y, a igual prioridad, el que más lleva esperando.
-    assert orden() == ["Tercero", "Segundo", "Primero"]
-    assert orden("?ver=abiertos") == ["Tercero", "Segundo"]
+    assert orden() == ["Segundo", "Tercero", "Primero"]
+    assert orden("?ver=abiertos") == ["Segundo", "Tercero"]
     # La vista por antigüedad ignora la prioridad por completo.
     assert orden("?ver=abiertos&orden=antiguedad") == ["Segundo", "Tercero"]
     assert secretaria.get("/casos/?orden=azar").status_code == 400
     assert accion(secretaria, primero, "prioridad", prioridad="ALTA").status_code == 409
-    assert segundo["prioridad"] == "NORMAL"
+    assert secretaria.get(f"/casos/{segundo['id']}/").json()["prioridad"] == "URGENTE"
 
 
 def test_cada_cambio_de_estado_avisa_por_la_aplicacion_y_por_correo(

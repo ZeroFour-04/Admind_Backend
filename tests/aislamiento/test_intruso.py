@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 from apps.anuncios.models import Anuncio, FotoDeAnuncio
 from apps.auditoria.models import Registro
 from apps.casos.models import Caso, FotoDeCaso
+from apps.citas.models import Cita, EstadoCita, HorarioDeAtencion
 from apps.areas.models import Area as AreaComun
 from apps.comun.aislamiento.contexto import usar_conjunto
 from apps.comun.aislamiento.vistas import VistaDeConjunto
@@ -680,6 +681,40 @@ def listado_de_casos(otro_conjunto):
     return reverse("casos"), str(caso_de(otro_conjunto).pk)
 
 
+def listado_de_horario(otro_conjunto):
+    persona = Persona.objects.create(
+        tipo_documento=TipoDocumento.CC,
+        numero_documento=str(Persona.objects.count() + 1023456789),
+        nombres="Ana",
+        apellidos="Ajena",
+    )
+    with usar_conjunto(otro_conjunto.id):
+        horario = HorarioDeAtencion.objects.create(
+            dias=[{"dia": 0, "activo": False}],
+            actualizado_por=persona,
+        )
+    return reverse("cita-horario"), str(horario.id)
+
+
+def listado_de_citas(otro_conjunto, nombre_ruta):
+    residente = usuario_de(otro_conjunto).persona
+    fecha = timezone.localdate() + timedelta(days=7)
+    with usar_conjunto(otro_conjunto.id):
+        cita = Cita.objects.create(
+            conjunto=otro_conjunto,
+            persona=residente,
+            fecha=fecha,
+            hora_inicio=time(8),
+            hora_fin=time(10),
+            estado=EstadoCita.AGENDADA,
+            vence_en=timezone.now() + timedelta(days=7),
+        )
+    ruta = reverse(nombre_ruta)
+    if nombre_ruta == "cita-agenda":
+        ruta = f"{ruta}?fecha={fecha.isoformat()}"
+    return ruta, str(cita.pk)
+
+
 def mover_caso_en(nombre_de_ruta):
     """Cualquier transición sobre un caso de otro conjunto: tiene que quedar como estaba."""
 
@@ -716,6 +751,9 @@ DETALLES = {
 LISTADOS = {
     "solicitudes-bandeja": listado_de_la_bandeja,
     "casos": listado_de_casos,
+    "cita-horario": listado_de_horario,
+    "cita-agenda": lambda conjunto: listado_de_citas(conjunto, "cita-agenda"),
+    "cita-bandeja": lambda conjunto: listado_de_citas(conjunto, "cita-bandeja"),
     "pruebas-areas": listado_de_areas,
     "usuarios": listado_de_usuarios,
     "conjunto-actual": resumen_del_conjunto,

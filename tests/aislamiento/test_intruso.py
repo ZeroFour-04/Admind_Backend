@@ -932,6 +932,8 @@ RUTAS_SIN_CONJUNTO = {
     # El perfil es de quien pregunta: no recibe ningún identificador de otro conjunto.
     "usuario-perfil",
     # El Superusuario crea conjuntos sin tener uno activo (HU-03).
+    # El Superusuario crea a otro sin conjunto (HU-06).
+    "superusuarios",
     "conjunto-crear",
     # El selector muestra logos de conjuntos que no son el activo; se revisa el acceso a cada uno (HU-21).
     "conjunto-logo-imagen",

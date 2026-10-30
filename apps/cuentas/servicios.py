@@ -15,6 +15,7 @@ from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 
 from apps.cuentas.models import TokenDeSesion, Usuario
+from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.permisos.servicios import conjuntos_disponibles, puede_operar_en
 from apps.personas.models import Persona
@@ -102,9 +103,18 @@ def usuarios_del_conjunto(conjunto_id):
     )
 
 
-def registrar_usuario(conjunto_id, *, tipo_documento, numero_documento, nombres, apellidos, correo,
-                      contrasena, rol, telefono=""):
+def registrar_usuario(conjunto_id, *, rol, **datos):
     """Crea la persona, su cuenta y su rol en el conjunto activo, todo o nada."""
+    return registrar_con_rol(rol, conjunto_id, **datos)
+
+
+def registrar_superusuario(**datos):
+    """Crea la persona, su cuenta y su rol de Superusuario, que no lleva conjunto (maestro §5.3)."""
+    return registrar_con_rol(Rol.SUPERUSUARIO, None, **datos)
+
+
+def registrar_con_rol(rol, conjunto_id, *, tipo_documento, numero_documento, nombres, apellidos,
+                      correo, contrasena, telefono=""):
     try:
         with transaction.atomic():
             persona = Persona.objects.create(

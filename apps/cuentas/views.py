@@ -1,6 +1,6 @@
 from django.core.exceptions import ValidationError as ErrorDeValidacionDeDjango
 from rest_framework import status
-from rest_framework.exceptions import NotFound, Throttled
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,6 +12,7 @@ from apps.cuentas.limites import LimiteDeEnlacesPorCorreo, LimiteDeEnlacesPorCue
 from apps.cuentas.serializers import (
     AsignarRolSerializer,
     CodigoSerializer,
+    CrearSuperusuarioSerializer,
     CrearUsuarioSerializer,
     ElegirConjuntoSerializer,
     IniciarSesionSerializer,
@@ -25,7 +26,7 @@ from apps.cuentas.serializers import (
 from apps.permisos import servicios as roles
 from apps.permisos.models import Asignacion
 from apps.permisos.servicios import conjuntos_disponibles
-from apps.permisos.views import exigir_permiso
+from apps.permisos.views import MENSAJE_SIN_PERMISO, exigir_permiso
 from apps.unidades import servicios as unidades
 
 MENSAJE_CREDENCIALES_INVALIDAS = "Correo o contraseña incorrectos."
@@ -112,6 +113,28 @@ class UsuariosView(VistaDeConjunto):
         datos.is_valid(raise_exception=True)
         try:
             usuario = servicios.registrar_usuario(request.auth.conjunto_activo_id, **datos.validated_data)
+        except servicios.PersonaYaExiste:
+            return Response(
+                {"numero_documento": ["Ya existe una persona con este documento."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response({"id": str(usuario.id), "correo": usuario.correo}, status=status.HTTP_201_CREATED)
+
+
+class SuperusuariosView(APIView):
+    """Alta de un Superusuario desde el selector (2026-10-30).
+
+    No hereda de VistaDeConjunto: el rol es de plataforma y no lleva conjunto. Solo otro
+    Superusuario lo crea, y eso se mira sobre la persona, no sobre el conjunto activo.
+    """
+
+    def post(self, request):
+        if not roles.es_superusuario(request.user.persona):
+            raise PermissionDenied(MENSAJE_SIN_PERMISO)
+        datos = CrearSuperusuarioSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        try:
+            usuario = servicios.registrar_superusuario(**datos.validated_data)
         except servicios.PersonaYaExiste:
             return Response(
                 {"numero_documento": ["Ya existe una persona con este documento."]},

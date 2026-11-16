@@ -266,6 +266,8 @@ def test_quien_perdio_la_aplicacion_recibe_un_enlace_en_el_correo_de_su_cuenta(u
     assert len(mailoutbox) == 1
     assert mailoutbox[0].to == ["laura@correo.com"]
     assert "/segundo-factor/restablecer/" in mailoutbox[0].body
+    html, tipo = mailoutbox[0].alternatives[0]
+    assert tipo == "text/html" and "/segundo-factor/restablecer/" in html and "cid:logo" in html
 
 
 def test_sin_haber_entrado_con_la_contrasena_no_se_puede_pedir_el_enlace(usuario, torres, mailoutbox):

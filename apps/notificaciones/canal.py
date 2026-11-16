@@ -7,12 +7,12 @@ import logging
 import uuid
 from dataclasses import dataclass
 
-from django.core.mail import send_mass_mail
 from django.db import transaction
 
 from apps.comun.aislamiento.contexto import conjunto_activo_id
 from apps.conjuntos.models import Conjunto
 from apps.cuentas.models import Usuario
+from apps.notificaciones.correo import armar, enviar
 from apps.notificaciones.models import Notificacion
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,9 @@ def por_correo(aviso, persona_ids, conjunto_id):
     ).values_list("correo", flat=True)
     conjunto = Conjunto.objects.get(pk=conjunto_id)
     asunto = f"AdMind · {conjunto.nombre}: {aviso.titulo}"
+    contexto = {"conjunto": conjunto.nombre, "titulo": aviso.titulo, "cuerpo": aviso.cuerpo}
     try:
-        send_mass_mail([(asunto, aviso.cuerpo, None, [correo]) for correo in correos])
+        mensajes = [armar(asunto, aviso.cuerpo, "aviso", contexto, correo) for correo in correos]
+        enviar(mensajes)
     except Exception:
         logger.exception("No se pudo enviar por correo el aviso %s %s", aviso.origen, aviso.referencia)

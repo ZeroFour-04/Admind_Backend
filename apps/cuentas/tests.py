@@ -547,6 +547,8 @@ def test_quien_olvido_la_contrasena_recibe_un_enlace_por_correo(cliente, usuario
     assert len(mailoutbox) == 1
     assert mailoutbox[0].to == ["laura@correo.com"]
     assert "/restablecer-contrasena/" in mailoutbox[0].body
+    html, tipo = mailoutbox[0].alternatives[0]
+    assert tipo == "text/html" and "/restablecer-contrasena/" in html and "cid:logo" in html
 
 
 def test_pedir_enlace_no_revela_si_el_correo_existe(cliente, usuario, mailoutbox):

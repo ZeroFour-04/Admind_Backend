@@ -141,6 +141,35 @@ def test_reserva_es_exclusiva_y_el_residente_solo_puede_tener_una_cita_futura():
         assert Cita.objects.filter(estado=EstadoCita.AGENDADA).count() == 1
 
 
+def test_una_cita_en_otro_conjunto_no_bloquea_agendar():
+    conjunto = Conjunto.objects.create(nombre="Torres del Río")
+    otro_conjunto = Conjunto.objects.create(nombre="Parque del Sol")
+    admin = crear_cliente(conjunto, "admin@torres.com", Rol.ADMINISTRACION)
+    residente = crear_cliente(conjunto, "vecino@torres.com", Rol.RESIDENTE)
+    assert admin.put("/citas/horario/", {"dias": dias_iniciales()}, format="json").status_code == 200
+    fecha = proximo_dia_habil()
+    persona = Usuario.objects.get(correo="vecino@torres.com").persona
+    with usar_conjunto(otro_conjunto.id):
+        Cita.objects.create(
+            conjunto=otro_conjunto,
+            persona=persona,
+            fecha=fecha,
+            hora_inicio="08:00",
+            hora_fin="10:00",
+            vence_en=timezone.now() + timedelta(days=1),
+        )
+
+    respuesta = residente.post(
+        "/citas/agenda/",
+        {"fecha": fecha.isoformat(), "hora_inicio": "08:00"},
+        format="json",
+    )
+
+    assert respuesta.status_code == 201
+    with usar_conjunto(conjunto.id):
+        assert Cita.objects.filter(estado=EstadoCita.AGENDADA).count() == 1
+
+
 def test_una_cita_vencida_pasa_a_atendida_y_no_bloquea_una_nueva():
     conjunto = Conjunto.objects.create(nombre="Torres del Río")
     admin = crear_cliente(conjunto, "admin@torres.com", Rol.ADMINISTRACION)

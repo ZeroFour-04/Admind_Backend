@@ -3,6 +3,7 @@
 Se llama al servicio directamente, sin HTTP. La hora la fija cada prueba con `ahora`.
 """
 from datetime import datetime, time, timedelta
+from unittest import mock
 
 import pytest
 from django.db import IntegrityError, transaction
@@ -487,7 +488,7 @@ def test_los_permisos_de_ingreso_son_de_vigilancia_y_de_administracion_y_el_hist
         assert not {"ingreso.registrar", "ingreso.ver_historico"} & PERMISOS_POR_ROL[rol]
 
 
-# La API (plan de zonas con ingreso, F4). Las peticiones usan la hora real: la zona abre todo el día.
+# La API (plan de zonas con ingreso, F4).
 
 CONTRASENA = "una-clave-larga-2026"
 
@@ -583,9 +584,19 @@ def test_un_residente_y_secretaria_ven_los_cupos_y_no_pueden_buscar_registrar_ni
 
 
 def test_los_cupos_son_un_conteo_sin_nombres(portero, vecino_pedro, abierto, pedro):
-    registrar_por_api(portero, abierto, pedro, acompanantes=1)
+    registrar_real = servicios.registrar
+    zonas_real = servicios.zonas
 
-    zonas = vecino_pedro.get("/ingresos/zonas/")
+    def registrar_con_hora_fija(actor, area_id, persona_id, unidad_id, acompanantes):
+        return registrar_real(actor, area_id, persona_id, unidad_id, acompanantes, ahora=AHORA)
+
+    with (
+        mock.patch("apps.ingresos.views.servicios.registrar", side_effect=registrar_con_hora_fija),
+        mock.patch("apps.ingresos.views.servicios.zonas", side_effect=lambda: zonas_real(ahora=AHORA)),
+    ):
+        registrar_por_api(portero, abierto, pedro, acompanantes=1)
+
+        zonas = vecino_pedro.get("/ingresos/zonas/")
 
     assert zonas.status_code == 200
     assert [(z["area"]["nombre"], z["adentro"], z["cupos"], z["abierta_ahora"]) for z in zonas.json()] == [

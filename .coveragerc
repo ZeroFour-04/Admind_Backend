@@ -1,0 +1,22 @@
+# Cobertura de pruebas: se mide el código de apps/, sin migraciones ni archivos de pruebas.
+# Uso: python -m pytest --cov --cov-report=term-missing --cov-report=html
+[run]
+source = apps
+branch = True
+omit =
+    */migrations/*
+    */tests.py
+    */test_*.py
+    */*_tests.py
+    */tests/*
+
+[report]
+# La rúbrica pide al menos 70 %: por debajo, la corrida falla (también en el CI).
+fail_under = 70
+show_missing = True
+skip_empty = True
+precision = 1
+
+[html]
+directory = htmlcov
+title = AdMind - cobertura del backend

@@ -95,6 +95,12 @@ class CrearUsuarioSerializer(serializers.Serializer):
         return datos
 
 
+class CrearSuperusuarioSerializer(CrearUsuarioSerializer):
+    """Los mismos datos y validaciones, sin rol: siempre es Superusuario."""
+
+    rol = None
+
+
 class UsuarioResumenSerializer(serializers.Serializer):
     id = serializers.UUIDField()
     nombre = serializers.SerializerMethodField()

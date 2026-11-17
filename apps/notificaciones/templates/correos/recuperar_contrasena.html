@@ -1,0 +1,15 @@
+{% extends "correos/base.html" %}
+{% block cuerpo %}
+<h1 style="margin:0 0 16px 0;font-size:20px;line-height:26px;color:#0E6B5A;">Restablece tu contraseña</h1>
+<p style="margin:0 0 12px 0;">Hola, {{ nombres }}.</p>
+<p style="margin:0 0 20px 0;">Pediste restablecer la contraseña de AdMind. Pulsa el botón para elegir una nueva.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px 0;">
+  <tr>
+    <td style="background-color:#0E6B5A;border-radius:6px;">
+      <a href="{{ enlace }}" style="display:inline-block;padding:12px 24px;color:#FFFFFF;font-weight:bold;text-decoration:none;">Elegir una contraseña nueva</a>
+    </td>
+  </tr>
+</table>
+<p style="margin:0 0 12px 0;font-size:13px;color:#6B7A76;">Si el botón no abre, copia esta dirección en el navegador:<br><a href="{{ enlace }}" style="color:#0E6B5A;word-break:break-all;">{{ enlace }}</a></p>
+<p style="margin:0;">El enlace sirve una sola vez y vence en {{ minutos }} minutos. Si no lo pediste, ignora este correo: tu contraseña sigue igual.</p>
+{% endblock %}

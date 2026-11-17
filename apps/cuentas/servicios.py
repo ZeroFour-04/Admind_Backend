@@ -7,7 +7,6 @@ from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
-from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
 from django.db.models import Prefetch
 from django.utils import timezone
@@ -15,6 +14,8 @@ from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 
 from apps.cuentas.models import TokenDeSesion, Usuario
+from apps.notificaciones.correo import armar
+from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
 from apps.permisos.servicios import conjuntos_disponibles, puede_operar_en
 from apps.personas.models import Persona
@@ -102,9 +103,18 @@ def usuarios_del_conjunto(conjunto_id):
     )
 
 
-def registrar_usuario(conjunto_id, *, tipo_documento, numero_documento, nombres, apellidos, correo,
-                      contrasena, rol, telefono=""):
+def registrar_usuario(conjunto_id, *, rol, **datos):
     """Crea la persona, su cuenta y su rol en el conjunto activo, todo o nada."""
+    return registrar_con_rol(rol, conjunto_id, **datos)
+
+
+def registrar_superusuario(**datos):
+    """Crea la persona, su cuenta y su rol de Superusuario, que no lleva conjunto (maestro §5.3)."""
+    return registrar_con_rol(Rol.SUPERUSUARIO, None, **datos)
+
+
+def registrar_con_rol(rol, conjunto_id, *, tipo_documento, numero_documento, nombres, apellidos,
+                      correo, contrasena, telefono=""):
     try:
         with transaction.atomic():
             persona = Persona.objects.create(
@@ -136,18 +146,15 @@ def solicitar_recuperacion(correo):
     token = default_token_generator.make_token(usuario)
     enlace = f"{settings.ADMIND_FRONT_URL}/restablecer-contrasena/{uid}/{token}/"
     minutos = settings.PASSWORD_RESET_TIMEOUT // 60
-    send_mail(
-        subject="AdMind: restablece tu contraseña",
-        message=(
-            f"Hola, {usuario.persona.nombres}.\n\n"
-            f"Pediste restablecer la contraseña de AdMind. Abre este enlace para elegir una nueva:\n\n"
-            f"{enlace}\n\n"
-            f"El enlace sirve una sola vez y vence en {minutos} minutos. "
-            f"Si no lo pediste, ignora este correo: tu contraseña sigue igual."
-        ),
-        from_email=None,
-        recipient_list=[usuario.correo],
+    texto = (
+        f"Hola, {usuario.persona.nombres}.\n\n"
+        f"Pediste restablecer la contraseña de AdMind. Abre este enlace para elegir una nueva:\n\n"
+        f"{enlace}\n\n"
+        f"El enlace sirve una sola vez y vence en {minutos} minutos. "
+        f"Si no lo pediste, ignora este correo: tu contraseña sigue igual."
     )
+    contexto = {"nombres": usuario.persona.nombres, "enlace": enlace, "minutos": minutos}
+    armar("AdMind: restablece tu contraseña", texto, "recuperar_contrasena", contexto, usuario.correo).send()
 
 
 def restablecer_contrasena(uid, token, contrasena):

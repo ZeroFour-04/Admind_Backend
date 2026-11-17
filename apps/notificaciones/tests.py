@@ -78,10 +78,56 @@ def test_llega_un_correo_por_persona_y_solo_a_cuentas_que_pueden_entrar(
         assert Notificacion.objects.count() == 4
 
 
+def test_el_correo_del_aviso_trae_texto_html_y_el_logo_incrustado(
+    torres, aviso, mailoutbox, django_capture_on_commit_callbacks
+):
+    marta = crear_persona("Marta", "marta@correo.com")
+
+    with usar_conjunto(torres.id), django_capture_on_commit_callbacks(execute=True):
+        notificar(aviso, [marta.id])
+
+    correo = mailoutbox[0]
+    assert correo.body == "El jueves de 8 a 2."
+    html, tipo = correo.alternatives[0]
+    assert tipo == "text/html"
+    assert "Corte de agua" in html and "Torres del Río" in html and "cid:logo" in html
+    assert [parte["Content-ID"] for parte in correo.attachments] == ["<logo>"]
+    assert "multipart/related" in correo.message()["Content-Type"]
+
+
+def test_el_html_del_correo_escapa_lo_que_escribe_el_usuario(
+    torres, mailoutbox, django_capture_on_commit_callbacks
+):
+    marta = crear_persona("Marta", "marta@correo.com")
+    peligroso = Aviso("<script>alert(1)</script>", "<b>hola</b>", origen="anuncio", referencia=uuid.uuid4())
+
+    with usar_conjunto(torres.id), django_capture_on_commit_callbacks(execute=True):
+        notificar(peligroso, [marta.id])
+
+    html = mailoutbox[0].alternatives[0][0]
+    assert "<script>" not in html and "&lt;script&gt;" in html
+    assert "<b>hola</b>" not in html
+
+
+def test_en_segundo_plano_la_peticion_no_espera_al_servidor_de_correo(
+    torres, aviso, mailoutbox, settings, django_capture_on_commit_callbacks
+):
+    settings.CORREO_EN_SEGUNDO_PLANO = True
+    marta = crear_persona("Marta", "marta@correo.com")
+
+    with mock.patch("apps.notificaciones.correo.threading.Thread") as hilo:
+        with usar_conjunto(torres.id), django_capture_on_commit_callbacks(execute=True):
+            notificar(aviso, [marta.id])
+
+    assert hilo.call_args.kwargs["daemon"] is True
+    hilo.return_value.start.assert_called_once()
+    assert mailoutbox == []  # el envío lo hace el hilo, no la petición
+
+
 def test_si_falla_el_correo_el_aviso_queda_en_la_bandeja(torres, aviso, django_capture_on_commit_callbacks):
     marta = crear_persona("Marta", "marta@correo.com")
 
-    with mock.patch("apps.notificaciones.canal.send_mass_mail", side_effect=OSError("SMTP caído")):
+    with mock.patch("apps.notificaciones.correo.get_connection", side_effect=OSError("SMTP caído")):
         with usar_conjunto(torres.id), django_capture_on_commit_callbacks(execute=True):
             notificar(aviso, [marta.id])
 

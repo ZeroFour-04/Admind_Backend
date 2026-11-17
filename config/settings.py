@@ -107,6 +107,9 @@ if EMAIL_HOST:
 else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "AdMind <no-responder@admind.local>")
+# Los avisos por correo salen en un hilo aparte para no pasar el tiempo de espera del frontend.
+# Las pruebas lo apagan para poder leer `mail.outbox` (config/settings_pruebas.py).
+CORREO_EN_SEGUNDO_PLANO = os.environ.get("CORREO_EN_SEGUNDO_PLANO", "True") == "True"
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

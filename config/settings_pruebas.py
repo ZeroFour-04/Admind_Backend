@@ -4,5 +4,8 @@ from config.settings import *  # noqa: F403
 INSTALLED_APPS = [*INSTALLED_APPS, "tests.aislamiento"]  # noqa: F405
 ROOT_URLCONF = "config.urls_pruebas"
 
+# El correo sale en el mismo hilo para que las pruebas lean `mail.outbox`.
+CORREO_EN_SEGUNDO_PLANO = False
+
 # Cifrado rápido e inseguro, solo para que la suite no tarde. Nunca en settings.py.
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]

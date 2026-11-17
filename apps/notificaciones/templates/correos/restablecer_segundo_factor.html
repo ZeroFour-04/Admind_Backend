@@ -1,0 +1,16 @@
+{% extends "correos/base.html" %}
+{% block cuerpo %}
+<h1 style="margin:0 0 16px 0;font-size:20px;line-height:26px;color:#0E6B5A;">Restablece la verificación en dos pasos</h1>
+<p style="margin:0 0 12px 0;">Hola, {{ nombres }}.</p>
+<p style="margin:0 0 20px 0;">Pediste ayuda con la verificación en dos pasos de AdMind. Si perdiste la aplicación de autenticación y tus códigos de respaldo, pulsa el botón para quitarla.</p>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px 0;">
+  <tr>
+    <td style="background-color:#0E6B5A;border-radius:6px;">
+      <a href="{{ enlace }}" style="display:inline-block;padding:12px 24px;color:#FFFFFF;font-weight:bold;text-decoration:none;">Quitar la verificación en dos pasos</a>
+    </td>
+  </tr>
+</table>
+<p style="margin:0 0 12px 0;font-size:13px;color:#6B7A76;">Si el botón no abre, copia esta dirección en el navegador:<br><a href="{{ enlace }}" style="color:#0E6B5A;word-break:break-all;">{{ enlace }}</a></p>
+<p style="margin:0 0 12px 0;">Al confirmarlo se cierran tus sesiones y, cuando vuelvas a entrar, la configuras de nuevo. El enlace sirve una sola vez y vence en {{ minutos }} minutos.</p>
+<p style="margin:0;color:#8A2B2B;">Si no lo pediste, no abras el enlace y cambia tu contraseña: alguien entró con ella.</p>
+{% endblock %}

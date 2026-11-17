@@ -29,6 +29,7 @@ Todas las rutas exigen `Authorization: Token <token>`, salvo las marcadas *públ
 | `POST` | `/auth/conjunto-activo/` | Elige el conjunto activo (`conjunto`) | 200 con el estado de la sesión · 404 si no puede operar ahí |
 | `GET` | `/auth/usuarios/` | Cuentas con algún rol en el conjunto activo. Exige `usuario.gestionar` | 200 con `roles` en el conjunto activo |
 | `POST` | `/auth/usuarios/` | Crea persona, cuenta y rol en el conjunto activo. Exige `usuario.gestionar` | 201 · 400 si el documento o el correo ya existen o los datos son inválidos (incluido el teléfono) · 403 sin conjunto activo |
+| `POST` | `/auth/superusuarios/` | Crea persona, cuenta y rol de Superusuario (sin conjunto). Solo lo pide un Superusuario | 201 · 400 si el documento o correo ya existen · 403 si no es Superusuario |
 | `GET` | `/auth/usuarios/<id>/` | Una cuenta del conjunto activo. Exige `usuario.gestionar` | 200 · 404 si no está en el conjunto activo |
 | `POST` | `/auth/recuperar/` | *Pública.* Envía el enlace de recuperación a `correo` | 202 siempre, exista o no la cuenta · 429 al cuarto pedido en una hora para el mismo correo |
 | `POST` | `/auth/recuperar/confirmar/` | *Pública.* Cambia la contraseña con `uid`, `token` y `contrasena`, y cierra las sesiones abiertas | 204 · 400 si el enlace no sirve o la contraseña no cumple las reglas |
@@ -54,7 +55,7 @@ Maestro §3.1, §5.3, §7.1, §7.2 · HU-01, HU-02, HU-26
 ## Pendiente
 
 - El correo de recuperación **no** pasa por el canal de notificaciones: el canal necesita un conjunto activo y deja el aviso en la bandeja, y aquí no hay sesión ni conjunto (decisión de Alejo, 2026-10-04)
-- `send_mail` es síncrono y sin `try`: si el servidor de correo falla, `/auth/recuperar/` responde 500 solo cuando la cuenta existe
+- El correo (texto + HTML con logo, `notificaciones/correo.armar`) se manda con `.send()`, síncrono y sin `try`: si el servidor de correo falla, `/auth/recuperar/` responde 500 solo cuando la cuenta existe
 - El límite de enlaces vive en memoria: se pierde al reiniciar el servidor y no se comparte entre procesos
 - `/auth/login/` no limita intentos de contraseña
 - Quitar el segundo factor no deja registro en la auditoría: `apps/auditoria/` escribe en el conjunto activo y aquí no hay ninguno. Tampoco lo deja la recuperación de contraseña

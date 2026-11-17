@@ -15,6 +15,8 @@ El residente crea un caso con título, descripción y una imagen opcional. La im
 
 Toda transición pasa por `servicios._pasar`: bloquea la fila, revisa el estado (si no sirve, `CasoNoGestionable` → 409), escribe, audita y avisa a quien abrió el caso, por la aplicación y por correo. La base no guarda un caso resuelto sin respuesta, uno rechazado sin motivo ni uno urgente sin justificación.
 
+`models.resumen_casos(conjunto)` consulta el total por estado y prioridad con `fn_resumen_casos`; el trigger `trg_sin_borrado_fisico` impide borrar casos directamente en la base.
+
 | Ruta | Nombre | Permiso |
 |---|---|---|
 | `GET /casos/` | `casos` | `caso.crear` (los propios) o `caso.ver_todos` (todos; `?ver=abiertos`, `?orden=antiguedad`, y los filtros `estado`, `prioridad`, `desde`, `hasta` y `solicitante`; uno inválido responde 400) |

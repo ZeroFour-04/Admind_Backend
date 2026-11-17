@@ -1,5 +1,5 @@
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db import models
+from django.db import connection, models
 from django.db.models import F, Q
 
 from apps.comun.modelos_base.modelos import ModeloDeConjunto
@@ -198,3 +198,8 @@ class ComprobanteDePago(ModeloDeConjunto):
 
     def __str__(self):
         return self.nombre
+
+
+def expirar_bloqueos_vencidos(p_conjunto):
+    with connection.cursor() as cursor:
+        cursor.execute("CALL sp_expirar_bloqueos_vencidos(%s)", [p_conjunto])

@@ -5,6 +5,7 @@ La concurrencia (N residentes sobre la misma franja) va en `tests/concurrencia/t
 import hashlib
 import uuid
 from datetime import datetime, time, timedelta
+from io import BytesIO
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -13,6 +14,7 @@ from django.test.utils import CaptureQueriesContext
 from django.urls import URLResolver, get_resolver
 from django.utils import timezone
 from django.utils.formats import date_format
+from openpyxl import load_workbook
 from rest_framework.test import APIClient
 
 from apps.areas.models import Area
@@ -74,6 +76,26 @@ def crear_area(conjunto, nombre, **extra):
         return Area.objects.create(nombre=nombre, **datos)
 
 
+def test_reporte_de_agendas_requiere_permiso_y_descarga_excel(admin_reportes, pedro, salon):
+    reserva = tomar(pedro, salon)
+    with usar_conjunto(salon.conjunto_id):
+        registro = Solicitud.objects.get(pk=reserva.json()["id"])
+        registro.motivo = "=1+1"
+        registro.save(update_fields=["motivo"])
+    denegado = pedro.get("/reservas/reportes/agendas.xlsx")
+    respuesta = admin_reportes.get("/reservas/reportes/agendas.xlsx")
+    hoja = load_workbook(BytesIO(respuesta.content)).active
+
+    assert denegado.status_code == 403
+    assert respuesta.status_code == 200
+    assert respuesta["Content-Type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert respuesta["Content-Disposition"] == 'attachment; filename="agendas-zonas-comunes.xlsx"'
+    assert respuesta.content.startswith(b"PK")
+    assert hoja["A6"].value == "Salón comunal"
+    assert hoja["E6"].value == "En trámite"
+    assert hoja["I6"].value == "=1+1" and hoja["I6"].data_type == "s"
+
+
 @pytest.fixture
 def torres():
     return Conjunto.objects.create(nombre="Torres del Río")
@@ -88,6 +110,12 @@ def apartamentos(torres):
 @pytest.fixture
 def salon(torres):
     return crear_area(torres, "Salón comunal")
+
+
+@pytest.fixture
+def admin_reportes(torres):
+    crear_usuario("admin-reportes@torres.com", "Admin", Rol.ADMINISTRACION, torres)
+    return cliente_para("admin-reportes@torres.com")
 
 
 @pytest.fixture

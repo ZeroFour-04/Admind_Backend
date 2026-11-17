@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import connection, models
 from django.db.models import Q
 
 from apps.comun.modelos_base.modelos import ModeloDeConjunto
@@ -69,3 +69,10 @@ class Comprobante(ModeloDeConjunto):
 
     def __str__(self):
         return self.nombre
+
+
+def estado_pagos(p_conjunto, p_periodo):
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM fn_estado_pagos(%s, %s)", [p_conjunto, p_periodo])
+        columnas = [columna[0] for columna in cursor.description]
+        return [dict(zip(columnas, fila)) for fila in cursor.fetchall()]

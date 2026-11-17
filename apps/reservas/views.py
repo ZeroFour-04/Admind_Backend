@@ -8,7 +8,7 @@ from apps.areas.models import Area
 from apps.comun.aislamiento.vistas import VistaDeConjunto
 from apps.comun.archivos import comprobantes
 from apps.permisos.views import exigir_permiso, tiene_permiso_en_conjunto
-from apps.reservas import pago, servicios
+from apps.reservas import pago, reportes, servicios
 from apps.reservas.serializers import (
     CampanaSerializer,
     ConsultarBandejaSerializer,
@@ -156,6 +156,17 @@ class BandejaDeSolicitudesView(VistaDeConjunto):
                 servicios.solicitudes_para_bandeja(**consulta.validated_data), many=True
             ).data
         )
+
+
+class ReporteAgendasView(VistaDeConjunto):
+    def get(self, request):
+        exigir_permiso(request, "area.gestionar")
+        respuesta = HttpResponse(
+            reportes.agendas_excel(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        respuesta["Content-Disposition"] = 'attachment; filename="agendas-zonas-comunes.xlsx"'
+        return respuesta
 
 
 class DecidirSolicitudView(VistaDeConjunto):

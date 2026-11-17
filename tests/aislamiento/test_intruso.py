@@ -1,10 +1,12 @@
 """Prueba del intruso por endpoint y prueba transversal de rutas (maestro §5.4, HU-05, HU-26)."""
 import uuid
-from datetime import time, timedelta
+from datetime import date, time, timedelta
+from io import BytesIO
 
 import pytest
 from django.urls import URLResolver, get_resolver, reverse
 from django.utils import timezone
+from openpyxl import load_workbook
 from rest_framework.test import APIClient
 from rest_framework.views import APIView
 
@@ -852,6 +854,12 @@ DETALLES = {
     "parqueadero-asignaciones": historial_de_parqueadero,
     "infraccion-detalle": detalle_de_infraccion,
 }
+RUTAS_DE_REPORTE_CUBIERTAS_POR_PRUEBAS_ESPECIFICAS = {
+    "reporte-zonas",
+    "reporte-pagos",
+    "reporte-ocupacion",
+    "reporte-agendas",
+}
 LISTADOS = {
     "solicitudes-bandeja": listado_de_la_bandeja,
     "casos": listado_de_casos,
@@ -1024,6 +1032,61 @@ def test_al_cambiar_de_conjunto_activo_solo_ve_los_datos_del_nuevo(torres, mirad
     assert en_mirador == ["Piscina"]
 
 
+def test_reporte_de_pagos_no_incluye_viviendas_de_otro_conjunto(intruso, mirador):
+    ajena = unidad_de(mirador)
+
+    respuesta = intruso.get("/api/reportes/pagos.xlsx?periodo=2026-11")
+    hoja = load_workbook(BytesIO(respuesta.content)).active
+    viviendas = [hoja.cell(fila, 1).value for fila in range(6, hoja.max_row + 1)]
+
+    assert respuesta.status_code == 200
+    assert ajena.nombre not in viviendas
+
+
+def test_reporte_de_zonas_consulta_el_conjunto_activo(intruso, torres, monkeypatch):
+    from apps.areas import reportes
+
+    consultado = {}
+
+    def ocupacion(conjunto_id, desde, hasta):
+        consultado["argumentos"] = conjunto_id, desde, hasta
+        return []
+
+    monkeypatch.setattr(reportes, "ocupacion_areas", ocupacion)
+    respuesta = intruso.get("/api/reportes/zonas.pdf?desde=2026-11-01&hasta=2026-11-30")
+
+    assert respuesta.status_code == 200
+    assert respuesta["Content-Type"] == "application/pdf"
+    assert consultado["argumentos"] == (torres.id, date(2026, 11, 1), date(2026, 11, 30))
+
+
+def test_reporte_de_agendas_no_incluye_solicitudes_de_otro_conjunto(intruso, mirador):
+    ajena = solicitud_de(mirador)
+
+    respuesta = intruso.get("/reservas/reportes/agendas.xlsx")
+    hoja = load_workbook(BytesIO(respuesta.content)).active
+    celdas = [celda.value for fila in hoja.iter_rows() for celda in fila]
+
+    assert respuesta.status_code == 200
+    assert ajena.area.nombre not in celdas
+
+
+def test_reporte_de_ocupacion_consulta_el_conjunto_activo(intruso, torres, monkeypatch):
+    from apps.areas import reportes
+
+    consultado = {}
+
+    def crear_pdf(conjunto, desde, hasta):
+        consultado["argumentos"] = conjunto.id, desde, hasta
+        return b"%PDF-prueba"
+
+    monkeypatch.setattr(reportes, "uso_zonas_pdf", crear_pdf)
+    respuesta = intruso.get("/areas/reportes/uso.pdf?desde=2026-11-01&hasta=2026-11-30")
+
+    assert respuesta.status_code == 200
+    assert consultado["argumentos"] == (torres.id, date(2026, 11, 1), date(2026, 11, 30))
+
+
 # Prueba transversal de rutas
 
 
@@ -1040,7 +1103,7 @@ def rutas_sin_cubrir(rutas):
     faltantes = []
     for nombre, vista in rutas:
         if issubclass(vista, VistaDeConjunto):
-            if nombre not in con_prueba_del_intruso:
+            if nombre not in con_prueba_del_intruso | RUTAS_DE_REPORTE_CUBIERTAS_POR_PRUEBAS_ESPECIFICAS:
                 faltantes.append(nombre)
         elif nombre not in RUTAS_SIN_CONJUNTO:
             faltantes.append(nombre)

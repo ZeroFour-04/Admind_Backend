@@ -1,0 +1,5 @@
+{% extends "correos/base.html" %}
+{% block cuerpo %}
+<h1 style="margin:0 0 16px 0;font-size:20px;line-height:26px;color:#0E6B5A;">{{ titulo }}</h1>
+<p style="margin:0;">{{ cuerpo|linebreaksbr }}</p>
+{% endblock %}

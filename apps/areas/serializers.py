@@ -56,6 +56,16 @@ class CrearAreaSerializer(serializers.Serializer):
         return datos
 
 
+class RangoDeReporteSerializer(serializers.Serializer):
+    desde = serializers.DateField()
+    hasta = serializers.DateField()
+
+    def validate(self, datos):
+        if datos["hasta"] < datos["desde"]:
+            raise serializers.ValidationError({"hasta": ["La fecha final debe ser igual o posterior a la inicial."]})
+        return datos
+
+
 class EditarAreaSerializer(serializers.Serializer):
     """Nombre, descripción, horario, aforo, mantenimiento y modo de uso."""
 

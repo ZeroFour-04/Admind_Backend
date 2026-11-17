@@ -16,6 +16,9 @@ El flujo de reserva de zonas comunes. El orden de llegada decide quién puede pe
 - Pago **declarado**, no validado (HU-16, construido el 2026-10-10): `Solicitud.pago_declarado_por` y `pago_declarado_en` (van los dos o ninguno, por un `CHECK`) y `ComprobanteDePago`, con el archivo dentro de la base. Vive en `pago.py`: declarar (solo `reserva.declarar_pago`, es decir Administración), retirar la declaración con motivo, subir el residente su comprobante (máximo 3, y no cambia el estado del pago) y decidir quién descarga. Aprobar una reserva no depende del pago
 - **Campana:** suscripción a una franja concreta, que se consume al notificar
 - Fechas de **alta demanda**, con FIFO puro sobre el momento de tomar el bloqueo
+- `models.expirar_bloqueos_vencidos(conjunto)` llama con `CALL` al procedimiento de base de datos; `servicios.expirar_vencidas` conserva el aviso de disponibilidad
+- `trg_sin_borrado_fisico` impide borrar solicitudes directamente en la base
+- `GET /reservas/reportes/agendas.xlsx` descarga todas las solicitudes del conjunto activo, sin filtrar por estado; requiere `area.gestionar`
 
 ## Con qué se conecta
 

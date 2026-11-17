@@ -17,6 +17,8 @@ El sistema **no sanciona**: notifica la infracción y registra su desenlace.
 
 Todos los permisos son sensibles (2FA). Ninguna ruta admite `PUT`, `PATCH` ni `DELETE`. Un registro anulado sigue en la lista.
 
+En la base, `trg_sin_borrado_fisico` bloquea el borrado y `trg_infraccion_anulada_inmutable` impide editar cualquier fila que ya estaba anulada.
+
 ## Diseño
 
 - Modelo `RegistroDeInfraccion` (§5.8). Sin campo `estado`: está abierto si `cierre_fecha` es nulo

@@ -59,6 +59,13 @@ def test_administracion_tiene_el_permiso_de_crear_conjuntos():
     assert "conjunto.crear" in PERMISOS_POR_ROL[Rol.ADMINISTRACION]
 
 
+def test_solo_administracion_y_superusuario_tienen_permiso_para_ver_reportes():
+    assert "reporte.ver" in PERMISOS
+    assert {
+        rol for rol, permisos in PERMISOS_POR_ROL.items() if "reporte.ver" in permisos
+    } == {Rol.ADMINISTRACION, Rol.SUPERUSUARIO}
+
+
 def test_solo_administracion_y_superusuario_aprueban_reservas():
     """La Secretaría clasifica y no decide el fondo: aprobar no se le concede (decisión del 2026-10-13)."""
     con_aprobacion = {rol for rol, permisos in PERMISOS_POR_ROL.items() if "reserva.aprobar" in permisos}

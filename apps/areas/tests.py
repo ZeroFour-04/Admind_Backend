@@ -100,6 +100,22 @@ def test_sin_area_gestionar_no_se_crea_ni_se_edita_y_solo_se_ven_las_activas(adm
     assert [area["nombre"] for area in admin.get("/areas/").json()] == ["BBQ", "Salón comunal"]
 
 
+def test_reporte_de_ocupacion_requiere_permiso_y_rango_valido(admin, residente):
+    inicio = date.today().replace(day=1).isoformat()
+    fin = date.today().isoformat()
+
+    denegado = residente.get(f"/areas/reportes/uso.pdf?desde={inicio}&hasta={fin}")
+    invalido = admin.get(f"/areas/reportes/uso.pdf?desde={fin}&hasta={inicio}")
+    respuesta = admin.get(f"/areas/reportes/uso.pdf?desde={inicio}&hasta={fin}")
+
+    assert denegado.status_code == 403
+    assert invalido.status_code == 400
+    assert respuesta.status_code == 200
+    assert respuesta["Content-Type"] == "application/pdf"
+    assert respuesta["Content-Disposition"] == 'attachment; filename="uso-zonas-comunes.pdf"'
+    assert respuesta.content.startswith(b"%PDF")
+
+
 def test_un_area_retirada_se_desactiva_y_no_se_borra(admin, torres, salon):
     respuesta = admin.post(f"/areas/{salon['id']}/desactivar/")
 

@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import connection, models
 from django.db.models import Q
 
 from apps.comun.modelos_base.modelos import ModeloDeConjunto
@@ -89,3 +89,10 @@ class FotoDeCaso(ModeloDeConjunto):
     caso = models.OneToOneField(Caso, on_delete=models.PROTECT, related_name="foto")
     contenido = models.BinaryField()
     tipo = models.CharField(max_length=20)
+
+
+def resumen_casos(p_conjunto):
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM fn_resumen_casos(%s)", [p_conjunto])
+        columnas = [columna[0] for columna in cursor.description]
+        return [dict(zip(columnas, fila)) for fila in cursor.fetchall()]

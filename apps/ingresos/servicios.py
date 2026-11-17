@@ -8,14 +8,14 @@ tenga un solo ingreso abierto sí lo decide un índice único parcial.
 from datetime import datetime, timedelta
 
 from django.db import transaction
-from django.db.models import Count, Sum
 from django.utils import timezone
 
 from apps.areas.models import Area, ModoDeUso
 from apps.auditoria import servicios as auditoria
+from apps.comun.aislamiento.contexto import conjunto_activo_id
 from apps.comun.bloqueo import bloqueo
 from apps.ingresos.evaluador import evaluar
-from apps.ingresos.models import EstadoIngreso, Ingreso
+from apps.ingresos.models import EstadoIngreso, Ingreso, aforo_actual
 from apps.notificaciones.canal import Aviso, notificar
 from apps.reglas import catalogo
 from apps.reglas.models import Regla
@@ -87,10 +87,7 @@ def dar_salida_a_vencidos(ahora=None):
 
 def ocupacion(area):
     """Las personas adentro: cada ingreso abierto cuenta uno más sus acompañantes (plan P10)."""
-    total = Ingreso.objects.filter(area=area, estado=EstadoIngreso.ADENTRO).aggregate(
-        ingresos=Count("id"), acompanantes=Sum("acompanantes")
-    )
-    return total["ingresos"] + (total["acompanantes"] or 0)
+    return aforo_actual(conjunto_activo_id(), area.id)
 
 
 def estado_de_apertura(area, ahora=None):

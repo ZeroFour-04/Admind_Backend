@@ -77,17 +77,21 @@ def disponibilidad(persona, conjunto_id, fecha=None):
             estado = "ocupada"
         franjas.append({"hora_inicio": inicio, "hora_fin": fin, "estado": estado})
     cita_propia = (
-        citas_futuras(persona, ahora)
-        .filter(conjunto_id=conjunto_id)
+        citas_futuras(persona, conjunto_id, ahora)
         .order_by("fecha", "hora_inicio")
         .first()
     )
     return {"horario": horario_actual(conjunto_id), "franjas": franjas, "cita_propia": cita_propia}
 
 
-def citas_futuras(persona, ahora=None):
+def citas_futuras(persona, conjunto_id, ahora=None):
     ahora = ahora or timezone.localtime()
-    return Cita.objects.filter(persona=persona, estado=EstadoCita.AGENDADA, vence_en__gt=ahora)
+    return Cita.objects.filter(
+        persona=persona,
+        conjunto_id=conjunto_id,
+        estado=EstadoCita.AGENDADA,
+        vence_en__gt=ahora,
+    )
 
 
 def expirar_citas(ahora=None):
@@ -124,7 +128,7 @@ def agendar(persona, conjunto_id, fecha, hora_inicio):
         inicio, fin = seleccionada
         if fecha < ahora.date() or timezone.make_aware(datetime.combine(fecha, inicio)) <= ahora:
             raise FranjaDeCitaInvalida()
-        if citas_futuras(persona, ahora).exists():
+        if citas_futuras(persona, conjunto_id, ahora).exists():
             raise CitaActivaExistente()
         if Cita.objects.filter(
             conjunto_id=conjunto_id,

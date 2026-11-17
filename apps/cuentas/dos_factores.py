@@ -10,7 +10,6 @@ import qrcode
 import qrcode.image.svg
 from django.conf import settings
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from django.core.mail import send_mail
 from django.db import transaction
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
@@ -18,6 +17,7 @@ from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from apps.cuentas.models import TokenDeSesion
+from apps.notificaciones.correo import armar
 from apps.cuentas.servicios import EnlaceInvalido, puede_entrar, usuario_del_enlace
 from apps.permisos.servicios import tiene_permisos_sensibles
 
@@ -170,20 +170,19 @@ def solicitar_restablecimiento(usuario):
     token = enlace_para_quitarlo.make_token(usuario)
     enlace = f"{settings.ADMIND_FRONT_URL}/segundo-factor/restablecer/{uid}/{token}/"
     minutos = settings.PASSWORD_RESET_TIMEOUT // 60
-    send_mail(
-        subject="AdMind: restablece la verificación en dos pasos",
-        message=(
-            f"Hola, {usuario.persona.nombres}.\n\n"
-            f"Pediste ayuda con la verificación en dos pasos de AdMind. Si perdiste la aplicación "
-            f"de autenticación y tus códigos de respaldo, abre este enlace para quitarla:\n\n"
-            f"{enlace}\n\n"
-            f"Al confirmarlo se cierran tus sesiones y, cuando vuelvas a entrar, la configuras de "
-            f"nuevo. El enlace sirve una sola vez y vence en {minutos} minutos.\n\n"
-            f"Si no lo pediste, no abras el enlace y cambia tu contraseña: alguien entró con ella."
-        ),
-        from_email=None,
-        recipient_list=[usuario.correo],
+    texto = (
+        f"Hola, {usuario.persona.nombres}.\n\n"
+        f"Pediste ayuda con la verificación en dos pasos de AdMind. Si perdiste la aplicación "
+        f"de autenticación y tus códigos de respaldo, abre este enlace para quitarla:\n\n"
+        f"{enlace}\n\n"
+        f"Al confirmarlo se cierran tus sesiones y, cuando vuelvas a entrar, la configuras de "
+        f"nuevo. El enlace sirve una sola vez y vence en {minutos} minutos.\n\n"
+        f"Si no lo pediste, no abras el enlace y cambia tu contraseña: alguien entró con ella."
     )
+    contexto = {"nombres": usuario.persona.nombres, "enlace": enlace, "minutos": minutos}
+    armar(
+        "AdMind: restablece la verificación en dos pasos", texto, "restablecer_segundo_factor", contexto, usuario.correo
+    ).send()
 
 
 def restablecer(uid, token):

@@ -55,7 +55,7 @@ Maestro §3.1, §5.3, §7.1, §7.2 · HU-01, HU-02, HU-26
 ## Pendiente
 
 - El correo de recuperación **no** pasa por el canal de notificaciones: el canal necesita un conjunto activo y deja el aviso en la bandeja, y aquí no hay sesión ni conjunto (decisión de Alejo, 2026-10-04)
-- `send_mail` es síncrono y sin `try`: si el servidor de correo falla, `/auth/recuperar/` responde 500 solo cuando la cuenta existe
+- El correo (texto + HTML con logo, `notificaciones/correo.armar`) se manda con `.send()`, síncrono y sin `try`: si el servidor de correo falla, `/auth/recuperar/` responde 500 solo cuando la cuenta existe
 - El límite de enlaces vive en memoria: se pierde al reiniciar el servidor y no se comparte entre procesos
 - `/auth/login/` no limita intentos de contraseña
 - Quitar el segundo factor no deja registro en la auditoría: `apps/auditoria/` escribe en el conjunto activo y aquí no hay ninguno. Tampoco lo deja la recuperación de contraseña

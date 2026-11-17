@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ asunto }}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#F2F5F4;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#F2F5F4;">
+  <tr>
+    <td align="center" style="padding:24px 12px;">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:600px;background-color:#FFFFFF;border-radius:8px;border:1px solid #DDE5E2;font-family:Arial,Helvetica,sans-serif;">
+        <tr>
+          <td style="background-color:#0E6B5A;padding:20px 24px;border-radius:8px 8px 0 0;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="background-color:#FFFFFF;border-radius:8px;padding:6px;" width="52">
+                  <img src="cid:logo" alt="AdMind" width="40" height="40" style="display:block;border:0;">
+                </td>
+                <td style="padding-left:14px;color:#FFFFFF;">
+                  <div style="font-size:20px;font-weight:bold;line-height:24px;">AdMind</div>
+                  {% if conjunto %}<div style="font-size:14px;line-height:20px;color:#D4EDE6;">{{ conjunto }}</div>{% endif %}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:28px 24px;color:#1F2A27;font-size:15px;line-height:23px;">
+            {% block cuerpo %}{% endblock %}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:16px 24px;border-top:1px solid #DDE5E2;color:#6B7A76;font-size:12px;line-height:18px;">
+            AdMind · no responder. Este correo salió de una dirección automática.
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

@@ -15,6 +15,7 @@ El canal de notificaciones: un componente, dos salidas. Decide **por dónde** ll
 Construido el 2026-09-22 para HU-25, que es su primer consumidor.
 
 - `canal.notificar(aviso, persona_ids)`: deja el aviso en la bandeja (`Notificacion`) y, al confirmarse la transacción, manda un correo por persona. Solo a cuentas que pueden entrar; un fallo del correo no deshace el aviso
+- `correo.py` arma todos los correos de la API (también los de `cuentas`): texto plano más HTML (`templates/correos/`), con el logo incrustado por CID (`recursos/logo-marca.png`). Los avisos salen en un hilo aparte si `CORREO_EN_SEGUNDO_PLANO` (por defecto sí; las pruebas lo apagan), para no pasar el tiempo de espera del frontend
 - Un mismo hecho avisa una sola vez: `UNIQUE (persona, origen, referencia)` en la base
 - `GET /notificaciones/`: los avisos de quien pregunta en el conjunto activo, los 100 más recientes
 - No hay marca de leída ni adaptador de WhatsApp todavía

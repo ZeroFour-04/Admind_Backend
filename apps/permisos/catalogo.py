@@ -43,6 +43,7 @@ PERMISOS = PERMISOS_DE_PLATAFORMA | frozenset({
     "importacion.ejecutar", "respaldo.generar", "auditoria.ver",
     "parqueadero.ver", "parqueadero.asignar", "parqueadero.gestionar",
     "pago.ver", "pago.confirmar", "pago.reportar",
+    "reporte.ver",
 })
 
 # Exigen segundo factor (HU-02).
@@ -79,6 +80,7 @@ PERMISOS_POR_ROL = {
         "importacion.ejecutar", "respaldo.generar", "auditoria.ver",
         "parqueadero.ver", "parqueadero.asignar", "parqueadero.gestionar",
         "pago.ver", "pago.confirmar",
+        "reporte.ver",
     }),
     # Clasifica y no decide el fondo: no aprueba reservas ni responde casos. Descarta por causal formal
     # (`solicitud.rechazar_formal`) y redirige los casos al administrador (`caso.gestionar`).

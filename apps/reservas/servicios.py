@@ -9,7 +9,7 @@ hasta HU-33 (Sprint 6), y sin esto los Sprints 3 y 4 no se podrían demostrar.
 """
 from datetime import datetime, timedelta
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Case, Prefetch, Value, When
 from django.utils import timezone
 from django.utils.formats import date_format
@@ -18,6 +18,7 @@ from apps.areas.models import ModoDeUso
 from apps.areas.servicios import franjas_del_dia
 from apps.auditoria import servicios as auditoria
 from apps.comun.bloqueo import bloqueo
+from apps.comun.aislamiento.contexto import conjunto_activo_id
 from apps.notificaciones.canal import Aviso, notificar
 from apps.permisos.catalogo import Rol
 from apps.permisos.models import Asignacion
@@ -35,6 +36,7 @@ from apps.reservas.models import (
     EstadoSolicitud,
     MotivoLiberacion,
     Solicitud,
+    expirar_bloqueos_vencidos,
 )
 from apps.unidades.models import Unidad
 from apps.unidades.servicios import unidades_para_solicitar
@@ -139,18 +141,30 @@ def notificar_disponibilidad(area, fecha, hora_inicio, hora_fin):
 
 
 def expirar_vencidas(ahora=None):
-    ahora = ahora or timezone.now()
-    expiradas = list(
-        Solicitud.objects.filter(estado=EstadoSolicitud.EN_SOLICITUD, bloqueo_vence_en__lte=ahora)
-        .select_related("area")
-    )
-    cantidad = bloqueo.expirar_vencidos(
-        Solicitud.objects,
-        campo_vence="bloqueo_vence_en",
-        estado_activo=EstadoSolicitud.EN_SOLICITUD,
-        estado_expirado=EstadoSolicitud.EXPIRADA,
-        ahora=ahora,
-    )
+    if ahora is None:
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT CURRENT_TIMESTAMP")
+                ahora = cursor.fetchone()[0]
+            expiradas = list(
+                Solicitud.objects.filter(estado=EstadoSolicitud.EN_SOLICITUD, bloqueo_vence_en__lte=ahora)
+                .select_related("area")
+                .select_for_update(of=("self",))
+            )
+            expirar_bloqueos_vencidos(conjunto_activo_id())
+            cantidad = len(expiradas)
+    else:
+        expiradas = list(
+            Solicitud.objects.filter(estado=EstadoSolicitud.EN_SOLICITUD, bloqueo_vence_en__lte=ahora)
+            .select_related("area")
+        )
+        cantidad = bloqueo.expirar_vencidos(
+            Solicitud.objects,
+            campo_vence="bloqueo_vence_en",
+            estado_activo=EstadoSolicitud.EN_SOLICITUD,
+            estado_expirado=EstadoSolicitud.EXPIRADA,
+            ahora=ahora,
+        )
     for solicitud in expiradas:
         notificar_disponibilidad(solicitud.area, solicitud.fecha, solicitud.hora_inicio, solicitud.hora_fin)
     return cantidad

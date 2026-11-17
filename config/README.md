@@ -4,7 +4,7 @@ Proyecto de Django: el paquete que crea `django-admin startproject`. No contiene
 
 ## Qué va aquí
 
-- Ajustes: conexión a PostgreSQL, apps instaladas, DRF, `django-otp`, middleware
+- Ajustes: conexión a PostgreSQL, apps instaladas, DRF, `django-otp`, middleware y archivos estáticos
 - URLs raíz, que montan las URLs de cada app de `apps/`
 - Arranque del servidor (WSGI/ASGI)
 
@@ -13,7 +13,9 @@ Proyecto de Django: el paquete que crea `django-admin startproject`. No contiene
 - `apps/`: registra cada app y monta sus rutas
 - `apps/comun/aislamiento/`: su middleware se declara aquí, después del de sesión
 - `bd/`: la aplicación se conecta con el usuario de aplicación, no con el dueño
-- Variables de entorno: contraseñas de la base y del SMTP. Nunca en el repositorio (§7.1)
+- Variables de entorno: `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS`,
+  conexión a PostgreSQL (`DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`) y SMTP.
+  Los secretos nunca se guardan en el repositorio (§7.1)
 
 ## Pendiente
 

@@ -12,6 +12,7 @@ from apps.reservas.views import (
     LiberarSolicitudView,
     MarcarDisponibilidadView,
     PagoDeSolicitudView,
+    ReporteAgendasView,
     RetirarPagoDeSolicitudView,
     SolicitudesDeAreaView,
     SolicitudesView,
@@ -20,6 +21,7 @@ from apps.reservas.views import (
 urlpatterns = [
     path("franjas/", FranjasView.as_view(), name="franjas"),
     path("bandeja/", BandejaDeSolicitudesView.as_view(), name="solicitudes-bandeja"),
+    path("reportes/agendas.xlsx", ReporteAgendasView.as_view(), name="reporte-agendas"),
     path("areas/<uuid:area_id>/solicitudes/", SolicitudesDeAreaView.as_view(), name="solicitudes-area"),
     path("solicitudes/", SolicitudesView.as_view(), name="solicitudes"),
     path("campanas/", MarcarDisponibilidadView.as_view(), name="campanas"),

@@ -1,10 +1,16 @@
 """Áreas comunes del conjunto activo (HU-09). Cada vista valida, exige su permiso y llama al servicio."""
+from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
-from apps.areas import servicios
-from apps.areas.serializers import AreaSerializer, CrearAreaSerializer, EditarAreaSerializer
+from apps.areas import reportes, servicios
+from apps.areas.serializers import (
+    AreaSerializer,
+    CrearAreaSerializer,
+    EditarAreaSerializer,
+    RangoDeReporteSerializer,
+)
 from apps.comun.aislamiento.vistas import VistaDeConjunto
 from apps.permisos.views import exigir_permiso
 
@@ -72,3 +78,20 @@ class DesactivarAreaView(VistaDeConjunto):
         except servicios.AreaYaInactiva:
             return Response({"detail": "El área ya está inactiva."}, status=status.HTTP_409_CONFLICT)
         return Response(AreaSerializer(area).data)
+
+
+class ReporteOcupacionView(VistaDeConjunto):
+    def get(self, request):
+        exigir_permiso(request, "area.gestionar")
+        consulta = RangoDeReporteSerializer(data=request.query_params)
+        consulta.is_valid(raise_exception=True)
+        respuesta = HttpResponse(
+            reportes.uso_zonas_pdf(
+                request.auth.conjunto_activo,
+                consulta.validated_data["desde"],
+                consulta.validated_data["hasta"],
+            ),
+            content_type="application/pdf",
+        )
+        respuesta["Content-Disposition"] = 'attachment; filename="uso-zonas-comunes.pdf"'
+        return respuesta

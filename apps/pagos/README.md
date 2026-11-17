@@ -10,6 +10,9 @@ Pago de la cuota de administración: el residente **reporta** y una persona **co
 - `periodos.py` (meses, funciones puras), `servicios.py` (tabla del mes con buscador en el servidor, check idempotente con `select_for_update`, reporte con validación por firma, «mis pagos» y descarga por vínculo) y `mora.py`
 - Cinco rutas bajo `/pagos/administracion/`: la tabla (`pago.ver`), el check (`pago.confirmar`), el reporte y «mios» (`pago.reportar`) y el comprobante. Ninguna fila trae la cédula
 - **La mora** (`mora.py`): una vivienda está en mora si le falta el pago confirmado de algún mes vencido, contando desde el mes en que se definió por primera vez la regla `DIA_LIMITE_DE_PAGO`. Sin esa regla, nadie. `apps/reglas/mora.py` delega aquí con un `import` tardío
+- `models.estado_pagos(conjunto, periodo)` consulta por vivienda `CONFIRMADO`, `REPORTADO` o `SIN_REPORTE` mediante `fn_estado_pagos`; no reemplaza el cálculo legal de mora
+- `GET /api/reportes/pagos.xlsx?periodo=AAAA-MM` descarga el estado de pago del mes en Excel, con totales por estado; exige `reporte.ver`
+- `trg_sin_borrado_fisico` impide borrar pagos directamente en la base
 - Paz y salvo (la regla vive en `apps/reglas/`; aquí solo se responde si hay mora)
 
 ## Lo que no existe

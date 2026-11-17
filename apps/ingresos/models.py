@@ -1,5 +1,5 @@
 from django.core.serializers.json import DjangoJSONEncoder
-from django.db import models
+from django.db import connection, models
 from django.db.models import F, Q
 
 from apps.comun.modelos_base.modelos import ModeloDeConjunto
@@ -66,3 +66,9 @@ class Ingreso(ModeloDeConjunto):
 
     def __str__(self):
         return f"{self.area} · {self.persona} · {self.get_estado_display()}"
+
+
+def aforo_actual(p_conjunto, p_area):
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT fn_aforo_actual(%s, %s)", [p_conjunto, p_area])
+        return cursor.fetchone()[0]

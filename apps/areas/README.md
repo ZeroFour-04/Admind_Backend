@@ -13,6 +13,9 @@ Catálogo de zonas comunes de cada conjunto: salón comunal, piscina, gimnasio y
 - Un área con ingreso no se reserva: `franjas_del_dia` devuelve una lista vacía
 - Cada área lleva un **aforo máximo** obligatorio, de 1 a 10 000: toda solicitud se compara con él
 - Administración puede guardar una plantilla de **condiciones del alquiler** por área; se devuelve con los datos del área y precarga la aprobación de una reserva
+- `models.ocupacion_areas(conjunto, desde, hasta)` consulta reservas `RESERVADA` y horas ocupadas por zona mediante `fn_ocupacion_areas`, para el reporte de ocupación
+- `GET /areas/reportes/uso.pdf?desde=AAAA-MM-DD&hasta=AAAA-MM-DD` genera el PDF de uso, con acceso `area.gestionar` y rango validado
+- `GET /api/reportes/zonas.pdf?desde=AAAA-MM-DD&hasta=AAAA-MM-DD` ofrece el reporte en la sección Reportes y exige `reporte.ver`
 
 ## Con qué se conecta
 

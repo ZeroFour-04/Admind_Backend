@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import connection, models
 from django.db.models import F, Q
 
 from apps.comun.modelos_base.modelos import ModeloDeConjunto
@@ -63,3 +63,10 @@ class Area(ModeloDeConjunto):
 
     def __str__(self):
         return self.nombre
+
+
+def ocupacion_areas(p_conjunto, p_desde, p_hasta):
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT * FROM fn_ocupacion_areas(%s, %s, %s)", [p_conjunto, p_desde, p_hasta])
+        columnas = [columna[0] for columna in cursor.description]
+        return [dict(zip(columnas, fila)) for fila in cursor.fetchall()]

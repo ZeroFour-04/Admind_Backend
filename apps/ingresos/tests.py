@@ -615,7 +615,10 @@ def test_administracion_ve_los_cupos_y_el_historial_con_filtros_y_no_puede_regis
 
 
 def test_un_registro_que_no_cumple_responde_400_con_todos_los_motivos_y_no_deja_fila(portero, torres, pedro):
-    area = crear_area(torres, "Piscina", en_mantenimiento=True, aforo_maximo=1)
+    # La API usa la hora real: abierta todo el día, para que el horario no sume un tercer motivo de noche.
+    area = crear_area(
+        torres, "Piscina", en_mantenimiento=True, aforo_maximo=1, hora_apertura=time(0), hora_cierre=time(23, 59, 59)
+    )
 
     respuesta = registrar_por_api(portero, area, pedro, acompanantes=2)
 

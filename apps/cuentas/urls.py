@@ -17,6 +17,7 @@ from apps.cuentas.views import (
     RestablecerDosFactoresView,
     SolicitarRecuperacionView,
     SolicitarRestablecerDosFactoresView,
+    SuperusuariosView,
     UsuariosView,
     VerificarDosFactoresView,
 )
@@ -27,6 +28,7 @@ urlpatterns = [
     path("conjuntos/", ConjuntosDisponiblesView.as_view(), name="conjuntos-disponibles"),
     path("conjunto-activo/", ConjuntoActivoView.as_view(), name="conjunto-activo"),
     path("usuarios/", UsuariosView.as_view(), name="usuarios"),
+    path("superusuarios/", SuperusuariosView.as_view(), name="superusuarios"),
     path("usuarios/perfil/", PerfilDeUsuarioView.as_view(), name="usuario-perfil"),
     path("usuarios/<uuid:usuario_id>/", DetalleDeUsuarioView.as_view(), name="usuario-detalle"),
     path("usuarios/<uuid:usuario_id>/roles/", RolesDeUsuarioView.as_view(), name="usuario-roles"),

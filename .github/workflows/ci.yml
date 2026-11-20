@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, desarrollo, pruebas]
 
+# El GITHUB_TOKEN de este flujo solo puede leer el repositorio: no escribe, no comenta, no publica.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -29,19 +33,23 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
+      - name: Check dependency lock
+        run: python scripts/bloquear_dependencias.py --check
+      # Solo wheels cuyo hash está en requirements.lock: nada cambiado en PyPI entra y ningún
+      # setup.py se ejecuta (Sonar githubactions:S8541 y S8544).
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install --require-hashes --only-binary :all: -r requirements.lock
       - name: Check migrations
         run: python manage.py makemigrations --check --dry-run
       - name: Run tests with coverage
         run: pytest -q --cov --cov-report=term --cov-report=html --cov-fail-under=70
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: cobertura-backend
           path: htmlcov/

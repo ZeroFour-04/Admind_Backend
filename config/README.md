@@ -14,6 +14,8 @@ Proyecto de Django: el paquete que crea `django-admin startproject`. No contiene
 - `apps/comun/aislamiento/`: su middleware se declara aquí, después del de sesión
 - `bd/`: la aplicación se conecta con el usuario de aplicación, no con el dueño
 - Variables de entorno: `DJANGO_DEBUG`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS`,
+  `CORS_ALLOWED_ORIGINS` (un solo origen del frontend: `http://127.0.0.1:8001` en local,
+  `https://admind.detkor.com` en la nube),
   conexión a PostgreSQL (`DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`) y SMTP.
   Los secretos nunca se guardan en el repositorio (§7.1)
 

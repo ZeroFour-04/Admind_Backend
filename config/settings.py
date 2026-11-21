@@ -30,6 +30,12 @@ SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
 
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
+_cors_allowed_origin = os.environ.get(
+    "CORS_ALLOWED_ORIGINS",
+    "http://127.0.0.1:8001",
+).strip()
+CORS_ALLOWED_ORIGINS = [_cors_allowed_origin] if _cors_allowed_origin else []
+CORS_ALLOW_CREDENTIALS = False
 
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -51,6 +57,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    "corsheaders",
     "rest_framework",
     "django_otp",
     "django_otp.plugins.otp_totp",
@@ -112,6 +119,7 @@ DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "AdMind <no-responder@
 CORREO_EN_SEGUNDO_PLANO = os.environ.get("CORREO_EN_SEGUNDO_PLANO", "True") == "True"
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     'django.middleware.security.SecurityMiddleware',
     "whitenoise.middleware.WhiteNoiseMiddleware",
     'django.contrib.sessions.middleware.SessionMiddleware',

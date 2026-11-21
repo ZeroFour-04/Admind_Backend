@@ -1,5 +1,7 @@
 """Anuncios del conjunto activo (HU-25). Cada vista valida, exige su permiso y llama al servicio."""
 from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.response import Response
@@ -17,10 +19,12 @@ def contexto(request):
 
 
 class AnunciosView(VistaDeConjunto):
+    @extend_schema(responses=AnuncioSerializer(many=True))
     def get(self, request):
         anuncios = servicios.tablon(request.user.persona, request.auth.conjunto_activo_id)
         return Response(AnuncioSerializer(anuncios, many=True, context=contexto(request)).data)
 
+    @extend_schema(request=PublicarAnuncioSerializer, responses={201: AnuncioSerializer})
     def post(self, request):
         # El permiso depende del alcance que se pide y se revisa antes que los demás datos.
         alcance = request.data.get("alcance") if hasattr(request.data, "get") else None
@@ -50,10 +54,12 @@ class DetalleDeAnuncioView(VistaDeConjunto):
             raise NotFound()
         return anuncio
 
+    @extend_schema(responses=AnuncioSerializer)
     def get(self, request, anuncio_id):
         anuncio = self.anuncio_visible(request, anuncio_id)
         return Response(AnuncioSerializer(anuncio, context=contexto(request)).data)
 
+    @extend_schema(request=EditarAnuncioSerializer, responses=AnuncioSerializer)
     def patch(self, request, anuncio_id):
         anuncio = self.anuncio_visible(request, anuncio_id)
         datos_de_permiso = contexto(request)
@@ -68,6 +74,7 @@ class DetalleDeAnuncioView(VistaDeConjunto):
 class FotoDeAnuncioView(VistaDeConjunto):
     """La imagen de una foto. Se entrega a quien puede ver el anuncio; a los demás, 404."""
 
+    @extend_schema(responses=OpenApiTypes.BINARY)
     def get(self, request, anuncio_id, foto_id):
         foto = servicios.foto_visible(request.user.persona, request.auth.conjunto_activo_id, anuncio_id, foto_id)
         if foto is None:

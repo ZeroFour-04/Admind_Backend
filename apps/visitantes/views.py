@@ -3,6 +3,7 @@
 Las reglas —solo Vigilancia registra, el parqueadero libre, la salida— viven en `servicios.py`.
 """
 from rest_framework import status
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.response import Response
 
@@ -17,6 +18,13 @@ MENSAJE_SALIDA_SOLO_VIGILANCIA = "Solo Vigilancia puede registrar la salida de l
 
 
 class VisitantesView(VistaDeConjunto):
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("q", str, OpenApiParameter.QUERY, required=False),
+            OpenApiParameter("buscar", str, OpenApiParameter.QUERY, required=False),
+        ],
+        responses=VisitanteSerializer(many=True),
+    )
     def get(self, request):
         exigir_permiso(request, "visitante.registrar", "visitante.ver_historico")
         solo_de_hoy = not tiene_permiso(
@@ -25,6 +33,7 @@ class VisitantesView(VistaDeConjunto):
         busqueda = request.GET.get("q") or request.GET.get("buscar") or ""
         return Response(VisitanteSerializer(servicios.visitantes_para(solo_de_hoy, buscar=busqueda), many=True).data)
 
+    @extend_schema(request=RegistrarVisitanteSerializer, responses={201: VisitanteSerializer})
     def post(self, request):
         exigir_permiso(request, "visitante.registrar")
         datos = RegistrarVisitanteSerializer(data=request.data)
@@ -59,6 +68,7 @@ class VisitantesView(VistaDeConjunto):
 
 
 class SalidaDeVisitanteView(VistaDeConjunto):
+    @extend_schema(request=None, responses=VisitanteSerializer)
     def post(self, request, visitante_id):
         """Registra la salida. Si la visita tenía parqueadero, queda libre al instante."""
         exigir_permiso(request, "visitante.registrar")

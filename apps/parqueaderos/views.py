@@ -1,5 +1,7 @@
 """Parqueaderos del conjunto activo (HU-28) y su asignación a una vivienda (HU-34). Cada vista valida, exige su permiso y llama al servicio."""
 from rest_framework import status
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
@@ -24,6 +26,7 @@ MENSAJE_SIN_ASIGNAR = {"detail": "Este parqueadero ya estaba sin asignar."}
 
 
 class ParqueaderosView(VistaDeConjunto):
+    @extend_schema(parameters=[ConsultarParqueaderosSerializer], responses=ParqueaderoSerializer(many=True))
     def get(self, request):
         # Vigilancia necesita la lista de libres para elegir puesto al registrar una visita.
         exigir_permiso(request, "parqueadero.ver", "parqueadero.gestionar", "visitante.registrar")
@@ -32,6 +35,7 @@ class ParqueaderosView(VistaDeConjunto):
         lista = servicios.parqueaderos(consulta.validated_data.get("tipo"), consulta.validated_data["libres"])
         return Response(ParqueaderoSerializer(lista, many=True).data)
 
+    @extend_schema(request=CrearParqueaderoSerializer, responses={201: ParqueaderoSerializer})
     def post(self, request):
         exigir_permiso(request, "parqueadero.gestionar")
         datos = CrearParqueaderoSerializer(data=request.data)
@@ -44,6 +48,7 @@ class ParqueaderosView(VistaDeConjunto):
 
 
 class DesactivarParqueaderoView(VistaDeConjunto):
+    @extend_schema(request=None, responses=ParqueaderoSerializer)
     def post(self, request, parqueadero_id):
         exigir_permiso(request, "parqueadero.gestionar")
         try:
@@ -60,6 +65,7 @@ class DesactivarParqueaderoView(VistaDeConjunto):
 class AsignacionView(VistaDeConjunto):
     """Asigna el puesto a una vivienda; si ya era de otra, la reasigna. La respuesta dice cuál fue."""
 
+    @extend_schema(request=AsignarParqueaderoSerializer, responses=ResultadoDeAsignacionSerializer)
     def post(self, request, parqueadero_id):
         exigir_permiso(request, "parqueadero.asignar")
         datos = AsignarParqueaderoSerializer(data=request.data)
@@ -84,6 +90,7 @@ class AsignacionView(VistaDeConjunto):
 class LiberacionView(VistaDeConjunto):
     """Cierra la asignación vigente sin darla a otra vivienda. Nunca por mora: la ruta no pregunta por ella."""
 
+    @extend_schema(request=None, responses=AsignacionSerializer)
     def post(self, request, parqueadero_id):
         exigir_permiso(request, "parqueadero.asignar")
         try:
@@ -96,6 +103,7 @@ class LiberacionView(VistaDeConjunto):
 
 
 class HistorialDeAsignacionesView(VistaDeConjunto):
+    @extend_schema(responses=AsignacionSerializer(many=True))
     def get(self, request, parqueadero_id):
         exigir_permiso(request, "parqueadero.ver", "parqueadero.asignar")
         try:
@@ -108,5 +116,6 @@ class HistorialDeAsignacionesView(VistaDeConjunto):
 class MisParqueaderosView(VistaDeConjunto):
     """Los puestos de las viviendas de quien pregunta. Sin permiso: cada persona ve solo los suyos."""
 
+    @extend_schema(responses=MiParqueaderoSerializer(many=True))
     def get(self, request):
         return Response(MiParqueaderoSerializer(servicios.mios(request.user.persona), many=True).data)

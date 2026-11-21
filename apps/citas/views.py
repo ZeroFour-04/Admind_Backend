@@ -1,6 +1,8 @@
 """Consulta y edición del horario de atención de citas (HU-31)."""
 from rest_framework.response import Response
 from rest_framework import status
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 
 from apps.citas import servicios
 from apps.citas.serializers import (
@@ -21,10 +23,12 @@ MENSAJE_CITA_EXISTENTE = "Ya tienes una cita futura agendada."
 
 
 class HorarioDeAtencionView(VistaDeConjunto):
+    @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self, request):
         exigir_permiso(request, "cita.gestionar_horario", "cita.agendar_propia")
         return Response(servicios.horario_actual(request.auth.conjunto_activo_id))
 
+    @extend_schema(request=HorarioDeAtencionSerializer, responses=OpenApiTypes.OBJECT)
     def put(self, request):
         exigir_permiso(request, "cita.gestionar_horario")
         entrada = HorarioDeAtencionSerializer(data=request.data)
@@ -38,6 +42,10 @@ class HorarioDeAtencionView(VistaDeConjunto):
 
 
 class AgendaDeCitasView(VistaDeConjunto):
+    @extend_schema(
+        parameters=[DisponibilidadSerializer],
+        responses=OpenApiTypes.OBJECT,
+    )
     def get(self, request):
         exigir_permiso(request, "cita.gestionar_horario", "cita.agendar_propia")
         entrada = DisponibilidadSerializer(data=request.query_params)
@@ -54,6 +62,7 @@ class AgendaDeCitasView(VistaDeConjunto):
             "cita_propia": CitaSerializer(resultado["cita_propia"]).data if resultado["cita_propia"] else None,
         })
 
+    @extend_schema(request=AgendarCitaSerializer, responses={201: CitaSerializer})
     def post(self, request):
         exigir_permiso(request, "cita.agendar_propia")
         entrada = AgendarCitaSerializer(data=request.data)
@@ -75,6 +84,7 @@ class AgendaDeCitasView(VistaDeConjunto):
 
 
 class CitasDeAdministracionView(VistaDeConjunto):
+    @extend_schema(responses=CitaAdministracionSerializer(many=True))
     def get(self, request):
         exigir_permiso(request, "cita.ver_todas")
         citas = servicios.citas_para_administracion(request.auth.conjunto_activo_id)

@@ -3,6 +3,8 @@
 Las dos van por POST: el documento no viaja en la URL ni queda en los logs (maestro §5.2, plan P4).
 """
 from rest_framework import status
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
@@ -14,6 +16,7 @@ from apps.personas.serializers import BuscarPersonaSerializer, VincularPersonaSe
 
 
 class BuscarPersonaView(VistaDeConjunto):
+    @extend_schema(request=BuscarPersonaSerializer, responses=OpenApiTypes.OBJECT)
     def post(self, request):
         exigir_permiso(request, "persona.buscar")
         datos = BuscarPersonaSerializer(data=request.data)
@@ -33,6 +36,7 @@ class BuscarPersonaView(VistaDeConjunto):
 
 
 class VincularPersonaView(VistaDeConjunto):
+    @extend_schema(request=VincularPersonaSerializer, responses={201: OpenApiTypes.OBJECT})
     def post(self, request):
         exigir_permiso(request, "persona.vincular")
         datos = VincularPersonaSerializer(data=request.data)

@@ -5,6 +5,8 @@ Las vistas piden el permiso y nada más: no revisan el rol por nombre. Qué ve c
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 
 from apps.comun.aislamiento.vistas import VistaDeConjunto
 from apps.ingresos import servicios
@@ -26,12 +28,14 @@ MENSAJE_SIN_INGRESO = {"detail": "Esta zona no es con ingreso."}
 
 
 class ZonasView(VistaDeConjunto):
+    @extend_schema(responses=ZonaSerializer(many=True))
     def get(self, request):
         exigir_permiso(request, *PERMISOS_DE_CUPOS)
         return Response(ZonaSerializer(servicios.zonas(), many=True).data)
 
 
 class BuscarResidenteView(VistaDeConjunto):
+    @extend_schema(request=BuscarResidenteSerializer, responses=ResidenteSerializer(many=True))
     def post(self, request):
         exigir_permiso(request, "ingreso.registrar")
         datos = BuscarResidenteSerializer(data=request.data)
@@ -44,6 +48,7 @@ class BuscarResidenteView(VistaDeConjunto):
 
 
 class IngresosView(VistaDeConjunto):
+    @extend_schema(parameters=[ConsultarIngresosSerializer], responses=OpenApiTypes.OBJECT)
     def get(self, request):
         """Con `ingreso.registrar`, quién está adentro y a quién se le cumplió el tiempo hoy; con `ingreso.ver_historico`, el historial."""
         exigir_permiso(request, "ingreso.registrar", "ingreso.ver_historico")
@@ -59,6 +64,7 @@ class IngresosView(VistaDeConjunto):
             respuesta["historial"] = IngresoSerializer(historial, many=True).data
         return Response(respuesta)
 
+    @extend_schema(request=RegistrarIngresoSerializer, responses={201: IngresoSerializer})
     def post(self, request):
         exigir_permiso(request, "ingreso.registrar")
         datos = RegistrarIngresoSerializer(data=request.data)
@@ -78,6 +84,7 @@ class IngresosView(VistaDeConjunto):
 
 
 class SalidaView(VistaDeConjunto):
+    @extend_schema(request=None, responses=IngresoSerializer)
     def post(self, request, ingreso_id):
         exigir_permiso(request, "ingreso.registrar")
         try:

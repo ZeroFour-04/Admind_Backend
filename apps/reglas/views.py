@@ -1,5 +1,7 @@
 """Reglas de reserva del conjunto activo, por niveles (HU-10). Cada vista valida, exige su permiso y llama al servicio."""
 from rest_framework import status
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
@@ -23,10 +25,12 @@ def regla_del_conjunto(regla_id):
 
 
 class ReglasView(VistaDeConjunto):
+    @extend_schema(responses=ReglaSerializer(many=True))
     def get(self, request):
         exigir_permiso(request, "regla.ver", "regla.configurar")
         return Response(ReglaSerializer(servicios.reglas_actuales(), many=True).data)
 
+    @extend_schema(request=CrearReglaSerializer, responses={201: ReglaSerializer})
     def post(self, request):
         exigir_permiso(request, "regla.configurar")
         datos = CrearReglaSerializer(data=request.data)
@@ -50,16 +54,19 @@ class ReglasView(VistaDeConjunto):
 class CatalogoDeReglasView(VistaDeConjunto):
     """Los tipos que se pueden definir hoy, con su nivel, su nombre y su descripción fija (P11)."""
 
+    @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self, request):
         exigir_permiso(request, "regla.ver", "regla.configurar")
         return Response(catalogo.tipos_vigentes())
 
 
 class DetalleDeReglaView(VistaDeConjunto):
+    @extend_schema(responses=ReglaSerializer)
     def get(self, request, regla_id):
         exigir_permiso(request, "regla.ver", "regla.configurar")
         return Response(ReglaSerializer(regla_del_conjunto(regla_id)).data)
 
+    @extend_schema(request=EditarReglaSerializer, responses=ReglaSerializer)
     def patch(self, request, regla_id):
         """Editar crea una versión nueva; responde la nueva."""
         exigir_permiso(request, "regla.configurar")
@@ -76,6 +83,7 @@ class DetalleDeReglaView(VistaDeConjunto):
 
 
 class RetirarReglaView(VistaDeConjunto):
+    @extend_schema(request=None, responses=ReglaSerializer)
     def post(self, request, regla_id):
         exigir_permiso(request, "regla.configurar")
         regla = regla_del_conjunto(regla_id)

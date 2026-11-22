@@ -1,4 +1,6 @@
 from django.core.exceptions import ValidationError as ErrorDeValidacionDeDjango
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.exceptions import NotFound, PermissionDenied, Throttled
 from rest_framework.permissions import AllowAny
@@ -52,6 +54,7 @@ class IniciarSesionView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
+    @extend_schema(request=IniciarSesionSerializer, responses=OpenApiTypes.OBJECT)
     def post(self, request):
         datos = IniciarSesionSerializer(data=request.data)
         datos.is_valid(raise_exception=True)
@@ -69,12 +72,14 @@ class IniciarSesionView(APIView):
 class CerrarSesionView(APIView):
     permitida_sin_segundo_factor = True
 
+    @extend_schema(request=None, responses={204: None})
     def post(self, request):
         servicios.cerrar_sesion(request.auth)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ConjuntosDisponiblesView(APIView):
+    @extend_schema(responses=ConjuntoListaSerializer(many=True))
     def get(self, request):
         conjuntos = conjuntos_disponibles(request.user.persona)
         return Response(ConjuntoListaSerializer(conjuntos, many=True).data)
@@ -83,6 +88,7 @@ class ConjuntosDisponiblesView(APIView):
 class ConjuntoActivoView(APIView):
     """El único punto de la API que recibe un conjunto: es donde se elige (HU-26)."""
 
+    @extend_schema(request=ElegirConjuntoSerializer, responses=OpenApiTypes.OBJECT)
     def post(self, request):
         datos = ElegirConjuntoSerializer(data=request.data)
         datos.is_valid(raise_exception=True)
@@ -102,11 +108,13 @@ def con_viviendas(usuarios):
 
 
 class UsuariosView(VistaDeConjunto):
+    @extend_schema(responses=UsuarioResumenSerializer(many=True))
     def get(self, request):
         exigir_permiso(request, "usuario.gestionar")
         usuarios = list(servicios.usuarios_del_conjunto(request.auth.conjunto_activo_id))
         return Response(UsuarioResumenSerializer(usuarios, many=True, context=con_viviendas(usuarios)).data)
 
+    @extend_schema(request=CrearUsuarioSerializer, responses={201: OpenApiTypes.OBJECT})
     def post(self, request):
         exigir_permiso(request, "usuario.gestionar")
         datos = CrearUsuarioSerializer(data=request.data)
@@ -128,6 +136,7 @@ class SuperusuariosView(APIView):
     Superusuario lo crea, y eso se mira sobre la persona, no sobre el conjunto activo.
     """
 
+    @extend_schema(request=CrearSuperusuarioSerializer, responses={201: OpenApiTypes.OBJECT})
     def post(self, request):
         if not roles.es_superusuario(request.user.persona):
             raise PermissionDenied(MENSAJE_SIN_PERMISO)
@@ -144,6 +153,7 @@ class SuperusuariosView(APIView):
 
 
 class DetalleDeUsuarioView(VistaDeConjunto):
+    @extend_schema(responses=UsuarioResumenSerializer)
     def get(self, request, usuario_id):
         exigir_permiso(request, "usuario.gestionar")
         usuario = servicios.usuarios_del_conjunto(request.auth.conjunto_activo_id).filter(pk=usuario_id).first()
@@ -154,6 +164,7 @@ class DetalleDeUsuarioView(VistaDeConjunto):
 
 
 class PerfilDeUsuarioView(APIView):
+    @extend_schema(responses=UsuarioResumenSerializer)
     def get(self, request):
         usuario = request.user
         usuario.persona.asignaciones_en_conjunto = asignaciones_del_usuario(
@@ -182,6 +193,7 @@ def usuario_actualizado(request, usuario):
 
 
 class RolesDeUsuarioView(VistaDeConjunto):
+    @extend_schema(request=AsignarRolSerializer, responses=UsuarioResumenSerializer)
     def post(self, request, usuario_id):
         exigir_permiso(request, "rol.asignar")
         usuario = usuario_del_conjunto(request, usuario_id)
@@ -211,6 +223,7 @@ def asignacion_del_usuario(request, usuario, asignacion_id):
 class CambiarRolView(VistaDeConjunto):
     """Una persona tiene un solo rol por conjunto: para darle otro se cambia el que tiene."""
 
+    @extend_schema(request=AsignarRolSerializer, responses=UsuarioResumenSerializer)
     def post(self, request, usuario_id, asignacion_id):
         exigir_permiso(request, "rol.asignar")
         usuario = usuario_del_conjunto(request, usuario_id)
@@ -234,6 +247,7 @@ class CambiarRolView(VistaDeConjunto):
 
 
 class RetirarRolView(VistaDeConjunto):
+    @extend_schema(request=None, responses=UsuarioResumenSerializer)
     def post(self, request, usuario_id, asignacion_id):
         exigir_permiso(request, "rol.asignar")
         usuario = usuario_del_conjunto(request, usuario_id)
@@ -248,6 +262,7 @@ class RetirarRolView(VistaDeConjunto):
 
 
 class RetirarUsuarioDelConjuntoView(VistaDeConjunto):
+    @extend_schema(request=None, responses={204: None})
     def post(self, request, usuario_id):
         exigir_permiso(request, "rol.asignar")
         usuario = usuario_del_conjunto(request, usuario_id)
@@ -274,6 +289,7 @@ class SolicitarRecuperacionView(APIView):
         # Texto propio, el mismo exista o no la cuenta. El de DRF le suma los segundos que faltan.
         raise Throttled(detail=MENSAJE_DEMASIADOS_ENLACES)
 
+    @extend_schema(request=SolicitarRecuperacionSerializer, responses={202: OpenApiTypes.OBJECT})
     def post(self, request):
         datos = SolicitarRecuperacionSerializer(data=request.data)
         datos.is_valid(raise_exception=True)
@@ -286,6 +302,7 @@ class RestablecerContrasenaView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
+    @extend_schema(request=RestablecerContrasenaSerializer, responses={204: None})
     def post(self, request):
         datos = RestablecerContrasenaSerializer(data=request.data)
         datos.is_valid(raise_exception=True)
@@ -304,6 +321,7 @@ class RestablecerContrasenaView(APIView):
 class ConfigurarDosFactoresView(APIView):
     permitida_sin_segundo_factor = True
 
+    @extend_schema(request=None, responses=OpenApiTypes.OBJECT)
     def post(self, request):
         try:
             return Response(dos_factores.iniciar_configuracion(request.auth))
@@ -316,6 +334,7 @@ class ConfigurarDosFactoresView(APIView):
 class ActivarDosFactoresView(APIView):
     permitida_sin_segundo_factor = True
 
+    @extend_schema(request=CodigoSerializer, responses=OpenApiTypes.OBJECT)
     def post(self, request):
         datos = CodigoSerializer(data=request.data)
         datos.is_valid(raise_exception=True)
@@ -337,6 +356,7 @@ class ActivarDosFactoresView(APIView):
 class VerificarDosFactoresView(APIView):
     permitida_sin_segundo_factor = True
 
+    @extend_schema(request=CodigoSerializer, responses=OpenApiTypes.OBJECT)
     def post(self, request):
         datos = CodigoSerializer(data=request.data)
         datos.is_valid(raise_exception=True)
@@ -358,6 +378,7 @@ class SolicitarRestablecerDosFactoresView(APIView):
     def throttled(self, request, wait):
         raise Throttled(detail=MENSAJE_DEMASIADOS_ENLACES_DE_SEGUNDO_FACTOR)
 
+    @extend_schema(request=None, responses={202: OpenApiTypes.OBJECT})
     def post(self, request):
         try:
             dos_factores.solicitar_restablecimiento(request.user)
@@ -371,6 +392,7 @@ class RestablecerDosFactoresView(APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
 
+    @extend_schema(request=RestablecerDosFactoresSerializer, responses={204: None})
     def post(self, request):
         datos = RestablecerDosFactoresSerializer(data=request.data)
         datos.is_valid(raise_exception=True)

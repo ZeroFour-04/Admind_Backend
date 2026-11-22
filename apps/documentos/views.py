@@ -4,6 +4,8 @@ El residente descarga lo vigente con `documento.ver`; las versiones archivadas p
 (sensible, con segundo factor). Toda descarga queda en la auditoría.
 """
 from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
@@ -23,6 +25,7 @@ def pdf(documento, tipo):
 class DocumentosView(VistaDeConjunto):
     """El vigente de cada tipo, sin el contenido: lo que muestra la pantalla «Documentos»."""
 
+    @extend_schema(operation_id="documentos_listado", responses=OpenApiTypes.OBJECT)
     def get(self, request):
         exigir_permiso(request, "documento.ver", "documento.subir")
         return Response([datos_del_documento(tipo, documento) for tipo, documento in servicios.vigentes()])
@@ -31,10 +34,12 @@ class DocumentosView(VistaDeConjunto):
 class DocumentoView(VistaDeConjunto):
     """Los datos del documento vigente de un tipo, y subir una versión nueva. No recibe el conjunto: es el activo."""
 
+    @extend_schema(operation_id="documento_retrieve", responses=OpenApiTypes.OBJECT)
     def get(self, request, tipo):
         exigir_permiso(request, "documento.ver", "documento.subir")
         return Response(datos_del_documento(tipo, servicios.vigente(tipo)))
 
+    @extend_schema(request=SubirDocumentoSerializer, responses=OpenApiTypes.OBJECT)
     def put(self, request, tipo):
         exigir_permiso(request, "documento.subir")
         datos = SubirDocumentoSerializer(data=request.data)
@@ -52,6 +57,7 @@ class DocumentoView(VistaDeConjunto):
 class ArchivoDelDocumentoView(VistaDeConjunto):
     """El PDF vigente de un tipo. Quien puede verlo puede bajarlo (D1 a); la descarga se audita."""
 
+    @extend_schema(request=None, responses=OpenApiTypes.BINARY)
     def get(self, request, tipo):
         exigir_permiso(request, "documento.ver", "documento.subir", "documento.descargar")
         documento = servicios.vigente(tipo, con_contenido=True)
@@ -64,6 +70,7 @@ class ArchivoDelDocumentoView(VistaDeConjunto):
 class VersionesView(VistaDeConjunto):
     """Todas las versiones de un tipo, la vigente primero. Solo con `documento.descargar`."""
 
+    @extend_schema(responses=VersionSerializer(many=True))
     def get(self, request, tipo):
         exigir_permiso(request, "documento.descargar")
         lista = servicios.versiones(tipo)
@@ -75,6 +82,7 @@ class VersionesView(VistaDeConjunto):
 class ArchivoDeVersionView(VistaDeConjunto):
     """El PDF de una versión, vigente o archivada. Solo con `documento.descargar`; se audita."""
 
+    @extend_schema(request=None, responses=OpenApiTypes.BINARY)
     def get(self, request, tipo, version_id):
         exigir_permiso(request, "documento.descargar")
         documento = servicios.version(tipo, version_id, con_contenido=True)

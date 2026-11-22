@@ -1,5 +1,7 @@
 """Áreas comunes del conjunto activo (HU-09). Cada vista valida, exige su permiso y llama al servicio."""
 from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
@@ -26,11 +28,13 @@ def area_visible(request, area_id):
 
 
 class AreasView(VistaDeConjunto):
+    @extend_schema(responses=AreaSerializer(many=True))
     def get(self, request):
         exigir_permiso(request, "area.ver", "area.gestionar")
         areas = servicios.areas_visibles(request.user.persona, request.auth.conjunto_activo_id)
         return Response(AreaSerializer(areas, many=True).data)
 
+    @extend_schema(request=CrearAreaSerializer, responses={201: AreaSerializer})
     def post(self, request):
         exigir_permiso(request, "area.gestionar")
         datos = CrearAreaSerializer(data=request.data)
@@ -43,10 +47,12 @@ class AreasView(VistaDeConjunto):
 
 
 class DetalleDeAreaView(VistaDeConjunto):
+    @extend_schema(responses=AreaSerializer)
     def get(self, request, area_id):
         exigir_permiso(request, "area.ver", "area.gestionar")
         return Response(AreaSerializer(area_visible(request, area_id)).data)
 
+    @extend_schema(request=EditarAreaSerializer, responses=AreaSerializer)
     def patch(self, request, area_id):
         exigir_permiso(request, "area.gestionar")
         area = area_visible(request, area_id)
@@ -70,6 +76,7 @@ class DetalleDeAreaView(VistaDeConjunto):
 
 
 class DesactivarAreaView(VistaDeConjunto):
+    @extend_schema(request=None, responses=AreaSerializer)
     def post(self, request, area_id):
         exigir_permiso(request, "area.gestionar")
         area = area_visible(request, area_id)
@@ -81,6 +88,10 @@ class DesactivarAreaView(VistaDeConjunto):
 
 
 class ReporteOcupacionView(VistaDeConjunto):
+    @extend_schema(
+        parameters=[RangoDeReporteSerializer],
+        responses=OpenApiTypes.BINARY,
+    )
     def get(self, request):
         exigir_permiso(request, "area.gestionar")
         consulta = RangoDeReporteSerializer(data=request.query_params)

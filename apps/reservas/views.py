@@ -1,5 +1,7 @@
 """Franjas y solicitudes de reserva del conjunto activo (HU-11). Cada vista valida, exige su permiso y llama al servicio."""
 from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
@@ -49,6 +51,7 @@ def solicitud_propia(request, solicitud_id):
 
 
 class FranjasView(VistaDeConjunto):
+    @extend_schema(parameters=[ConsultarFranjasSerializer], responses=OpenApiTypes.OBJECT)
     def get(self, request):
         exigir_permiso(request, "reserva.solicitar", "reserva.ver_todas")
         consulta = ConsultarFranjasSerializer(data=request.query_params)
@@ -66,10 +69,12 @@ class FranjasView(VistaDeConjunto):
 
 
 class SolicitudesView(VistaDeConjunto):
+    @extend_schema(responses=SolicitudSerializer(many=True))
     def get(self, request):
         exigir_permiso(request, "reserva.solicitar", "reserva.ver_todas")
         return Response(SolicitudSerializer(servicios.solicitudes_de(request.user.persona), many=True).data)
 
+    @extend_schema(request=TomarBloqueoSerializer, responses={201: DetalleDeSolicitudSerializer})
     def post(self, request):
         """Toma el bloqueo de la franja: 3 minutos exclusivos para llenar y enviar la solicitud."""
         exigir_permiso(request, "reserva.solicitar")
@@ -116,6 +121,7 @@ class SolicitudesView(VistaDeConjunto):
 
 
 class MarcarDisponibilidadView(VistaDeConjunto):
+    @extend_schema(request=MarcarDisponibilidadSerializer, responses={201: CampanaSerializer})
     def post(self, request):
         exigir_permiso(request, "reserva.solicitar")
         datos = MarcarDisponibilidadSerializer(data=request.data)
@@ -137,6 +143,7 @@ class MarcarDisponibilidadView(VistaDeConjunto):
 
 
 class SolicitudesDeAreaView(VistaDeConjunto):
+    @extend_schema(responses=SolicitudParaAdministrarSerializer(many=True))
     def get(self, request, area_id):
         exigir_permiso(request, "reserva.ver_todas", "reserva.aprobar", "reserva.rechazar")
         area = area_del_conjunto(area_id)
@@ -146,6 +153,10 @@ class SolicitudesDeAreaView(VistaDeConjunto):
 
 
 class BandejaDeSolicitudesView(VistaDeConjunto):
+    @extend_schema(
+        parameters=[ConsultarBandejaSerializer],
+        responses=SolicitudParaAdministrarSerializer(many=True),
+    )
     def get(self, request):
         """La pestaña Reservas del dashboard: Administración y Secretaría. Vigilancia no entra."""
         exigir_permiso(request, "solicitud.bandeja_ver")
@@ -159,6 +170,7 @@ class BandejaDeSolicitudesView(VistaDeConjunto):
 
 
 class ReporteAgendasView(VistaDeConjunto):
+    @extend_schema(request=None, responses=OpenApiTypes.BINARY)
     def get(self, request):
         exigir_permiso(request, "area.gestionar")
         respuesta = HttpResponse(
@@ -170,6 +182,7 @@ class ReporteAgendasView(VistaDeConjunto):
 
 
 class DecidirSolicitudView(VistaDeConjunto):
+    @extend_schema(request=DecisionDeSolicitudSerializer, responses=SolicitudParaAdministrarSerializer)
     def post(self, request, solicitud_id):
         exigir_permiso(request, "reserva.aprobar", "reserva.rechazar")
         datos = DecisionDeSolicitudSerializer(data=request.data)
@@ -193,6 +206,7 @@ class DecidirSolicitudView(VistaDeConjunto):
 
 
 class DescartarSolicitudView(VistaDeConjunto):
+    @extend_schema(request=DescarteDeSolicitudSerializer, responses=SolicitudParaAdministrarSerializer)
     def post(self, request, solicitud_id):
         """Secretaría descarta por causal formal. No aprueba: esa operación es de Administración."""
         exigir_permiso(request, "solicitud.rechazar_formal")
@@ -213,12 +227,14 @@ class DescartarSolicitudView(VistaDeConjunto):
 
 
 class DetalleDeSolicitudView(VistaDeConjunto):
+    @extend_schema(responses=DetalleDeSolicitudSerializer)
     def get(self, request, solicitud_id):
         exigir_permiso(request, "reserva.solicitar", "reserva.ver_todas")
         return Response(DetalleDeSolicitudSerializer(solicitud_propia(request, solicitud_id)).data)
 
 
 class LiberarSolicitudView(VistaDeConjunto):
+    @extend_schema(request=None, responses=DetalleDeSolicitudSerializer)
     def post(self, request, solicitud_id):
         """Soltar el bloqueo a propósito: al cerrar o cancelar el formulario."""
         exigir_permiso(request, "reserva.solicitar")
@@ -231,6 +247,7 @@ class LiberarSolicitudView(VistaDeConjunto):
 
 
 class EnviarSolicitudView(VistaDeConjunto):
+    @extend_schema(request=EnviarSolicitudSerializer, responses=DetalleDeSolicitudSerializer)
     def post(self, request, solicitud_id):
         """Envía la solicitud: se evalúa contra todas las reglas, pase o no por la pantalla de confirmación."""
         exigir_permiso(request, "reserva.solicitar")
@@ -286,6 +303,7 @@ def demasiados_comprobantes():
 
 
 class PagoDeSolicitudView(VistaDeConjunto):
+    @extend_schema(request=DeclararPagoSerializer, responses=SolicitudParaAdministrarSerializer)
     def post(self, request, solicitud_id):
         """Administración declara que recibió el pago, con un comprobante opcional (HU-16). No valida el dinero."""
         exigir_permiso(request, "reserva.declarar_pago")
@@ -313,6 +331,7 @@ class PagoDeSolicitudView(VistaDeConjunto):
 
 
 class RetirarPagoDeSolicitudView(VistaDeConjunto):
+    @extend_schema(request=RetirarPagoSerializer, responses=SolicitudParaAdministrarSerializer)
     def post(self, request, solicitud_id):
         """Administración retira una declaración hecha por error. El motivo es obligatorio y queda auditado."""
         exigir_permiso(request, "reserva.declarar_pago")
@@ -330,6 +349,7 @@ class RetirarPagoDeSolicitudView(VistaDeConjunto):
 
 
 class ComprobantesDeSolicitudView(VistaDeConjunto):
+    @extend_schema(request=SubirComprobanteSerializer, responses={201: DetalleDeSolicitudSerializer})
     def post(self, request, solicitud_id):
         """El residente sube un comprobante a una solicitud suya. Subirlo no declara el pago."""
         exigir_permiso(request, "reserva.solicitar")
@@ -357,6 +377,7 @@ class ComprobantesDeSolicitudView(VistaDeConjunto):
 
 
 class ComprobanteDeSolicitudView(VistaDeConjunto):
+    @extend_schema(request=None, responses=OpenApiTypes.BINARY)
     def get(self, request, comprobante_id):
         """El archivo del comprobante, solo por esta ruta. Quien no puede verlo recibe 404, no 403 (plan P8)."""
         # `reserva.ver_todas` entra para que Vigilancia reciba 404 y no 403: no se le confirma que existe.

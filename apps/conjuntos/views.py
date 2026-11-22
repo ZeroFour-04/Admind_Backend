@@ -3,6 +3,8 @@
 Cada vista valida, exige su permiso y llama al servicio.
 """
 from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.response import Response
@@ -44,6 +46,7 @@ class CrearConjuntoView(APIView):
     no solo en el activo: quien administra uno puede crear otro apenas inicia sesión.
     """
 
+    @extend_schema(request=DatosDeConjuntoSerializer, responses={201: OpenApiTypes.OBJECT})
     def post(self, request):
         if not puede_crear_conjuntos(request.user.persona):
             raise PermissionDenied(MENSAJE_SIN_PERMISO)
@@ -65,11 +68,13 @@ class ConjuntoActualView(VistaDeConjunto):
     conjuntos pero sí configura el que está creando: por eso también basta `conjunto.activar`.
     """
 
+    @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self, request):
         exigir_permiso(request, "conjunto.editar", "conjunto.activar")
         conjunto = Conjunto.objects.get(pk=request.auth.conjunto_activo_id)
         return Response(resumen_del_asistente(request, conjunto))
 
+    @extend_schema(request=DatosDeConjuntoSerializer, responses=OpenApiTypes.OBJECT)
     def patch(self, request):
         exigir_permiso(request, "conjunto.editar", "conjunto.activar")
         if "acento" in request.data or "color" in request.data:
@@ -80,6 +85,7 @@ class ConjuntoActualView(VistaDeConjunto):
         servicios.editar_datos(conjunto, **datos.validated_data)
         return Response(resumen_del_asistente(request, conjunto))
 
+    @extend_schema(request=None, responses={204: None})
     def delete(self, request):
         if not es_superusuario(request.user.persona):
             raise PermissionDenied(MENSAJE_SIN_PERMISO)
@@ -92,6 +98,7 @@ class ConjuntoActualView(VistaDeConjunto):
 
 
 class ActivarConjuntoView(VistaDeConjunto):
+    @extend_schema(request=None, responses=OpenApiTypes.OBJECT)
     def post(self, request):
         exigir_permiso(request, "conjunto.activar")
         conjunto = Conjunto.objects.get(pk=request.auth.conjunto_activo_id)
@@ -115,11 +122,13 @@ PERMISOS_DE_IDENTIDAD = ("conjunto.branding", "conjunto.activar")
 
 
 class IdentidadDelConjuntoView(VistaDeConjunto):
+    @extend_schema(responses=ConjuntoResumenSerializer)
     def get(self, request):
         exigir_permiso(request, *PERMISOS_DE_IDENTIDAD)
         conjunto = Conjunto.objects.get(pk=request.auth.conjunto_activo_id)
         return Response(ConjuntoResumenSerializer(conjunto).data)
 
+    @extend_schema(request=AcentoSerializer, responses=ConjuntoResumenSerializer)
     def patch(self, request):
         exigir_permiso(request, *PERMISOS_DE_IDENTIDAD)
         datos = AcentoSerializer(data=request.data)
@@ -130,6 +139,7 @@ class IdentidadDelConjuntoView(VistaDeConjunto):
 
 
 class LogoDelConjuntoView(VistaDeConjunto):
+    @extend_schema(request=LogoSerializer, responses=ConjuntoResumenSerializer)
     def put(self, request):
         exigir_permiso(request, *PERMISOS_DE_IDENTIDAD)
         datos = LogoSerializer(data=request.data)
@@ -143,6 +153,7 @@ class LogoDelConjuntoView(VistaDeConjunto):
             return Response({"archivo": [error.mensaje]}, status=status.HTTP_400_BAD_REQUEST)
         return Response(ConjuntoResumenSerializer(conjunto).data)
 
+    @extend_schema(request=None, responses=ConjuntoResumenSerializer)
     def delete(self, request):
         exigir_permiso(request, *PERMISOS_DE_IDENTIDAD)
         conjunto = Conjunto.objects.get(pk=request.auth.conjunto_activo_id)
@@ -158,6 +169,7 @@ class ImagenDelLogoView(APIView):
     donde la persona puede operar. Si no, 404, igual que si no existiera.
     """
 
+    @extend_schema(responses=OpenApiTypes.BINARY)
     def get(self, request, huella):
         logo = servicios.logo_por_huella(request.user.persona, huella)
         if logo is None:

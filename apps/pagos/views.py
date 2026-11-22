@@ -4,6 +4,8 @@ Ver y actuar son permisos distintos: `pago.ver` consulta la tabla, `pago.confirm
 `pago.reportar` sube el comprobante de una vivienda propia.
 """
 from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import status
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
@@ -36,6 +38,7 @@ def periodo_pedido(texto, por_defecto_hoy=False):
 
 
 class PagosDeAdministracionView(VistaDeConjunto):
+    @extend_schema(parameters=[ConsultarPagosSerializer], responses=OpenApiTypes.OBJECT)
     def get(self, request):
         """La tabla del mes: una fila por vivienda, con el buscador en el servidor."""
         exigir_permiso(request, "pago.ver")
@@ -47,6 +50,7 @@ class PagosDeAdministracionView(VistaDeConjunto):
 
 
 class ConfirmacionView(VistaDeConjunto):
+    @extend_schema(request=ConfirmacionSerializer, responses=OpenApiTypes.OBJECT)
     def post(self, request, unidad_id, periodo):
         """Pone o quita el check. Solo Administración: Secretaría consulta y no marca."""
         exigir_permiso(request, "pago.confirmar")
@@ -62,6 +66,7 @@ class ConfirmacionView(VistaDeConjunto):
 
 
 class ReportesView(VistaDeConjunto):
+    @extend_schema(request=ReportarPagoSerializer, responses={201: OpenApiTypes.OBJECT})
     def post(self, request):
         """El residente sube el comprobante del mes de una vivienda suya. No confirma nada."""
         exigir_permiso(request, "pago.reportar")
@@ -97,6 +102,7 @@ class ReportesView(VistaDeConjunto):
 
 
 class MisPagosView(VistaDeConjunto):
+    @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self, request):
         """Por cada vivienda de la persona, sus últimos 6 periodos con su estado."""
         # `pago.ver` entra para que quien gestiona y no tiene viviendas reciba una lista vacía, no un 403.
@@ -106,6 +112,7 @@ class MisPagosView(VistaDeConjunto):
 
 
 class ComprobanteView(VistaDeConjunto):
+    @extend_schema(request=None, responses=OpenApiTypes.BINARY)
     def get(self, request, comprobante_id):
         """El archivo, solo por esta ruta. Quien no puede verlo recibe 404, no 403."""
         exigir_permiso(request, "pago.ver", "pago.reportar")

@@ -15,6 +15,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from config.openapi import TAGS
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -58,6 +60,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     "corsheaders",
+    "drf_spectacular",
     "rest_framework",
     "django_otp",
     "django_otp.plugins.otp_totp",
@@ -88,9 +91,25 @@ AUTH_USER_MODEL = "cuentas.Usuario"
 # y el segundo factor verificado si la persona tiene algún permiso sensible (HU-02).
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["apps.cuentas.autenticacion.AutenticacionPorToken"],
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
         "apps.cuentas.permisos.DosFactoresAlDia",
+    ],
+}
+SPECTACULAR_SETTINGS = {
+    "TITLE": "AdMind API",
+    "DESCRIPTION": (
+        "API REST de AdMind para administrar conjuntos residenciales. "
+        "Las operaciones de negocio requieren autenticación; la documentación es pública."
+    ),
+    "VERSION": "1.0.0",
+    "TAGS": TAGS,
+    "SERVE_AUTHENTICATION": [],
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
+    "POSTPROCESSING_HOOKS": [
+        "drf_spectacular.hooks.postprocess_schema_enums",
+        "config.openapi.asignar_tags_por_app",
     ],
 }
 DURACION_TOKEN_DE_SESION = timedelta(hours=1)

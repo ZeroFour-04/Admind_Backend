@@ -933,6 +933,9 @@ ACCIONES = {
     "visitante-salida": salida_de_visitante_en,
 }
 RUTAS_SIN_CONJUNTO = {
+    # La documentación OpenAPI es pública; describe rutas, pero no concede acceso a ellas.
+    "api-schema",
+    "api-docs",
     "iniciar-sesion",
     "cerrar-sesion",
     "conjuntos-disponibles",

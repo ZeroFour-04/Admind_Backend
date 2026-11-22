@@ -1,5 +1,7 @@
 """Casos del conjunto activo (HU-29). Cada vista valida, exige su permiso y llama al servicio."""
 from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_view
 from rest_framework import status
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
@@ -21,6 +23,17 @@ from apps.permisos.views import exigir_permiso, tiene_permiso_en_conjunto
 
 TIPOS_DE_FOTO = {"image/png", "image/jpeg", "image/webp"}
 MENSAJE_YA_GESTIONADO = {"detail": "El caso ya fue gestionado."}
+CASO_ABIERTOAPI = PolymorphicProxySerializer(
+    component_name="CasoAbierto",
+    serializers=[CasoSerializer, CasoParaGestionSerializer],
+    resource_type_field_name=None,
+)
+CASOS_ABIERTOSAPI = PolymorphicProxySerializer(
+    component_name="CasosAbiertos",
+    serializers=[CasoSerializer, CasoParaGestionSerializer],
+    resource_type_field_name=None,
+    many=True,
+)
 
 
 def ve_todos(request):
@@ -34,6 +47,7 @@ def serializar(request, caso):
 
 
 class CasosView(VistaDeConjunto):
+    @extend_schema(parameters=[ConsultarCasosSerializer], responses=CASOS_ABIERTOSAPI)
     def get(self, request):
         exigir_permiso(request, "caso.crear", "caso.ver_todos")
         if not ve_todos(request):
@@ -45,6 +59,7 @@ class CasosView(VistaDeConjunto):
             casos = casos.filter(estado=servicios.EstadoCaso.REDIRIGIDO)
         return Response(CasoParaGestionSerializer(casos, many=True).data)
 
+    @extend_schema(request=CrearCasoSerializer, responses={201: CasoSerializer})
     def post(self, request):
         exigir_permiso(request, "caso.crear")
         datos = CrearCasoSerializer(data=request.data)
@@ -65,6 +80,7 @@ class CasosView(VistaDeConjunto):
 
 
 class DetalleDeCasoView(VistaDeConjunto):
+    @extend_schema(responses=CASO_ABIERTOAPI)
     def get(self, request, caso_id):
         """El de otra persona o de otro conjunto responde 404: no se confirma que existe."""
         exigir_permiso(request, "caso.crear", "caso.ver_todos")
@@ -106,6 +122,7 @@ class AccionSobreCasoView(VistaDeConjunto):
         return Response(serializar(request, caso))
 
 
+@extend_schema_view(post=extend_schema(request=None, responses=CASO_ABIERTOAPI))
 class TomarCasoView(AccionSobreCasoView):
     permisos = ("caso.gestionar", "caso.responder")
 
@@ -113,6 +130,7 @@ class TomarCasoView(AccionSobreCasoView):
         return servicios.tomar(actor, caso_id)
 
 
+@extend_schema_view(post=extend_schema(request=PriorizarCasoSerializer, responses=CASO_ABIERTOAPI))
 class PriorizarCasoView(AccionSobreCasoView):
     permisos = ("solicitud.priorizar",)
     serializer = PriorizarCasoSerializer
@@ -121,6 +139,7 @@ class PriorizarCasoView(AccionSobreCasoView):
         return servicios.priorizar(actor, caso_id, datos["prioridad"], datos["justificacion"])
 
 
+@extend_schema_view(post=extend_schema(request=RedirigirCasoSerializer, responses=CASO_ABIERTOAPI))
 class RedirigirCasoView(AccionSobreCasoView):
     permisos = ("caso.gestionar",)
     serializer = RedirigirCasoSerializer
@@ -129,6 +148,7 @@ class RedirigirCasoView(AccionSobreCasoView):
         return servicios.redirigir(actor, caso_id, datos["nota"])
 
 
+@extend_schema_view(post=extend_schema(request=DescartarCasoSerializer, responses=CASO_ABIERTOAPI))
 class DescartarCasoView(AccionSobreCasoView):
     """La Secretaría cierra por causal formal. Responder de fondo no le corresponde."""
 
@@ -139,6 +159,7 @@ class DescartarCasoView(AccionSobreCasoView):
         return servicios.descartar(actor, caso_id, datos["causal"], datos["motivo"])
 
 
+@extend_schema_view(post=extend_schema(request=ResponderCasoSerializer, responses=CASO_ABIERTOAPI))
 class ResponderCasoView(AccionSobreCasoView):
     permisos = ("caso.responder",)
     serializer = ResponderCasoSerializer
@@ -147,6 +168,7 @@ class ResponderCasoView(AccionSobreCasoView):
         return servicios.responder(actor, caso_id, datos["respuesta"])
 
 
+@extend_schema_view(post=extend_schema(request=RechazarCasoSerializer, responses=CASO_ABIERTOAPI))
 class RechazarCasoView(AccionSobreCasoView):
     permisos = ("caso.responder",)
     serializer = RechazarCasoSerializer
@@ -156,6 +178,7 @@ class RechazarCasoView(AccionSobreCasoView):
 
 
 class FotoDeCasoView(VistaDeConjunto):
+    @extend_schema(responses=OpenApiTypes.BINARY)
     def get(self, request, caso_id, foto_id):
         exigir_permiso(request, "caso.crear", "caso.ver_todos")
         foto = servicios.foto_visible(request.user.persona, caso_id, foto_id, ve_todos(request))

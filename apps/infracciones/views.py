@@ -4,6 +4,7 @@ No hay `PUT`, `PATCH` ni `DELETE`: un registro no se edita ni se borra; se cierr
 Todos los permisos son sensibles (segundo factor).
 """
 from rest_framework import status
+from drf_spectacular.utils import extend_schema
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
@@ -29,10 +30,12 @@ def encontrado(registro):
 
 
 class InfraccionesView(VistaDeConjunto):
+    @extend_schema(responses=RegistroSerializer(many=True))
     def get(self, request):
         exigir_permiso(request, "infraccion.ver")
         return Response(RegistroSerializer(servicios.registros(), many=True).data)
 
+    @extend_schema(request=RegistrarInfraccionSerializer, responses={201: RegistroSerializer})
     def post(self, request):
         exigir_permiso(request, "infraccion.registrar")
         datos = RegistrarInfraccionSerializer(data=request.data)
@@ -55,12 +58,14 @@ class InfraccionesView(VistaDeConjunto):
 
 
 class DetalleDeInfraccionView(VistaDeConjunto):
+    @extend_schema(responses=RegistroSerializer)
     def get(self, request, registro_id):
         exigir_permiso(request, "infraccion.ver")
         return Response(RegistroSerializer(encontrado(servicios.detalle(registro_id))).data)
 
 
 class CierreView(VistaDeConjunto):
+    @extend_schema(request=CerrarInfraccionSerializer, responses=RegistroSerializer)
     def post(self, request, registro_id):
         exigir_permiso(request, "infraccion.cerrar")
         datos = CerrarInfraccionSerializer(data=request.data)
@@ -77,6 +82,7 @@ class CierreView(VistaDeConjunto):
 
 
 class AnulacionView(VistaDeConjunto):
+    @extend_schema(request=AnularInfraccionSerializer, responses=RegistroSerializer)
     def post(self, request, registro_id):
         exigir_permiso(request, "infraccion.anular")
         datos = AnularInfraccionSerializer(data=request.data)

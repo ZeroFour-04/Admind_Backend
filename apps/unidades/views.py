@@ -1,5 +1,7 @@
 """Unidades y vínculos del conjunto activo (HU-08). Cada vista valida, exige su permiso y llama al servicio."""
 from rest_framework import status
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 
@@ -42,6 +44,7 @@ def detalle(unidad):
 class UnidadesView(VistaDeConjunto):
     """Las unidades del conjunto activo. También las usa el anuncio dirigido a una vivienda (HU-25)."""
 
+    @extend_schema(responses=UnidadConPersonasSerializer(many=True))
     def get(self, request):
         exigir_permiso(request, "vinculo.gestionar", "anuncio.dirigir", "visitante.registrar")
         # Las personas y sus documentos solo salen para quien gestiona vínculos, no para Anuncios ni Portería.
@@ -51,6 +54,7 @@ class UnidadesView(VistaDeConjunto):
             )
         return Response(UnidadSerializer(servicios.unidades_del_conjunto(), many=True).data)
 
+    @extend_schema(request=CrearUnidadSerializer, responses={201: UnidadSerializer})
     def post(self, request):
         exigir_permiso(request, "vinculo.gestionar")
         datos = CrearUnidadSerializer(data=request.data)
@@ -73,6 +77,7 @@ def agrupacion_de_otro_tipo(error):
 class PrevisualizarEstructuraView(VistaDeConjunto):
     """Lo que se crearía con esa descripción. No guarda nada (HU-39)."""
 
+    @extend_schema(request=EspecificacionSerializer, responses=OpenApiTypes.OBJECT)
     def post(self, request):
         exigir_permiso(request, "vinculo.gestionar")
         datos = EspecificacionSerializer(data=request.data)
@@ -86,6 +91,7 @@ class PrevisualizarEstructuraView(VistaDeConjunto):
 class GenerarEstructuraView(VistaDeConjunto):
     """Crea las viviendas de esa descripción. Las que ya existen se omiten (HU-39)."""
 
+    @extend_schema(request=EspecificacionSerializer, responses={201: OpenApiTypes.OBJECT, 200: OpenApiTypes.OBJECT})
     def post(self, request):
         exigir_permiso(request, "vinculo.gestionar")
         datos = EspecificacionSerializer(data=request.data)
@@ -105,18 +111,21 @@ class GenerarEstructuraView(VistaDeConjunto):
 class AgrupacionesView(VistaDeConjunto):
     """Las agrupaciones del conjunto activo y cuántas viviendas tiene cada una (HU-39)."""
 
+    @extend_schema(responses=ResumenDeAgrupacionesSerializer)
     def get(self, request):
         exigir_permiso(request, "vinculo.gestionar")
         return Response(ResumenDeAgrupacionesSerializer(servicios.resumen_de_agrupaciones()).data)
 
 
 class DetalleDeUnidadView(VistaDeConjunto):
+    @extend_schema(responses=DetalleDeUnidadSerializer)
     def get(self, request, unidad_id):
         exigir_permiso(request, "vinculo.gestionar")
         return Response(detalle(unidad_del_conjunto(unidad_id)))
 
 
 class VinculosDeUnidadView(VistaDeConjunto):
+    @extend_schema(request=RegistrarVinculoSerializer, responses={201: VinculoSerializer})
     def post(self, request, unidad_id):
         exigir_permiso(request, "vinculo.gestionar")
         unidad = unidad_del_conjunto(unidad_id)
@@ -145,6 +154,7 @@ class VinculosDeUnidadView(VistaDeConjunto):
 
 
 class CerrarVinculoView(VistaDeConjunto):
+    @extend_schema(request=CerrarVinculoSerializer, responses=DetalleDeUnidadSerializer)
     def post(self, request, unidad_id, vinculo_id):
         exigir_permiso(request, "vinculo.gestionar")
         unidad = unidad_del_conjunto(unidad_id)

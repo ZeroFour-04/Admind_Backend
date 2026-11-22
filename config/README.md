@@ -6,6 +6,8 @@ Proyecto de Django: el paquete que crea `django-admin startproject`. No contiene
 
 - Ajustes: conexión a PostgreSQL, apps instaladas, DRF, `django-otp`, middleware y archivos estáticos
 - URLs raíz, que montan las URLs de cada app de `apps/`
+- Documentación OpenAPI pública: `/api/schema/` y `/api/docs/`. La interfaz no habilita
+  operaciones de negocio sin la autenticación que cada endpoint ya exige.
 - Arranque del servidor (WSGI/ASGI)
 
 ## Con qué se conecta

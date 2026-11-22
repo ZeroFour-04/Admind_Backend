@@ -1,5 +1,7 @@
 """Descargas de reportes del conjunto activo, disponibles solo para Administración."""
 from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework.exceptions import ValidationError
 
 from apps.areas import reportes as reportes_areas
@@ -12,6 +14,10 @@ from apps.permisos.views import exigir_permiso
 
 
 class ReporteZonasView(VistaDeConjunto):
+    @extend_schema(
+        parameters=[RangoDeReporteSerializer],
+        responses=OpenApiTypes.BINARY,
+    )
     def get(self, request):
         exigir_permiso(request, "reporte.ver")
         consulta = RangoDeReporteSerializer(data=request.query_params)
@@ -27,6 +33,18 @@ class ReporteZonasView(VistaDeConjunto):
 
 
 class ReportePagosView(VistaDeConjunto):
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="periodo",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Mes en formato AAAA-MM.",
+            )
+        ],
+        responses=OpenApiTypes.BINARY,
+    )
     def get(self, request):
         exigir_permiso(request, "reporte.ver")
         try:

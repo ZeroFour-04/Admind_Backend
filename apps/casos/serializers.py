@@ -50,6 +50,7 @@ class ConsultarCasosSerializer(serializers.Serializer):
     desde = serializers.DateField(required=False)
     hasta = serializers.DateField(required=False)
     solicitante = serializers.CharField(max_length=80, required=False, allow_blank=True, trim_whitespace=True)
+    solo_redirigidos = serializers.BooleanField(required=False, default=True)
 
     def validate(self, datos):
         if "desde" in datos and "hasta" in datos and datos["desde"] > datos["hasta"]:

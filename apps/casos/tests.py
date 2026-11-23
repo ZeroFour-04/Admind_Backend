@@ -182,6 +182,21 @@ def test_gestion_ve_todos_los_casos_con_residente_apartamento_y_fecha(contexto, 
     assert [item["id"] for item in de_administracion.json()] == [caso["id"]]
 
 
+def test_administracion_puede_ver_todos_los_casos_con_el_filtro_explicit(contexto, gestion):
+    _, _, cliente_residente = contexto
+    secretaria, administracion = gestion
+    abierto = abrir(cliente_residente, "Abierto", "Aún no se redirige.")
+    redirigido = abrir(cliente_residente, "Redirigido", "Ya pasó a Administración.")
+    accion(secretaria, redirigido, "redirigir")
+
+    predeterminada = administracion.get("/casos/")
+    todos = administracion.get("/casos/", {"solo_redirigidos": "false"})
+
+    assert [caso["id"] for caso in predeterminada.json()] == [redirigido["id"]]
+    assert {caso["id"] for caso in todos.json()} == {abierto["id"], redirigido["id"]}
+    assert administracion.get(f"/casos/{abierto['id']}/").status_code == 200
+
+
 def test_el_residente_no_ve_la_nota_interna_ni_quien_actuo(contexto, gestion):
     _, _, cliente_residente = contexto
     secretaria, administracion = gestion

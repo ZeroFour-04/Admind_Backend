@@ -1,13 +1,14 @@
 from rest_framework import serializers
 
+from apps.personas.validadores import campo_cedula, campo_letras, campo_placa
 from apps.visitantes.models import Visitante
 
 
 class RegistrarVisitanteSerializer(serializers.Serializer):
-    nombre = serializers.CharField(max_length=120)
-    cedula = serializers.CharField(max_length=20)
+    nombre = campo_letras(120)
+    cedula = campo_cedula()
     ingresa_con_vehiculo = serializers.BooleanField(default=False)
-    placa_vehiculo = serializers.CharField(max_length=10, required=False, allow_blank=True, default="")
+    placa_vehiculo = campo_placa(required=False, allow_blank=True, default="")
     tipo_vehiculo = serializers.ChoiceField(
         choices=(("Auto", "Auto"), ("Moto", "Moto"), ("Bicicleta", "Bicicleta")),
         required=False,

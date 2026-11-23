@@ -7,7 +7,8 @@ from apps.cuentas.models import Usuario
 from apps.permisos.catalogo import ROLES_DE_CONJUNTO, Rol
 from apps.permisos.models import Asignacion
 from apps.permisos.servicios import permisos_efectivos, puede_crear_conjuntos
-from apps.personas.models import Persona, TipoDocumento, normalizar_documento
+from apps.personas.models import Persona, TipoDocumento
+from apps.personas.validadores import campo_letras, validar_documento
 
 
 def asignaciones_del_usuario(usuario, conjunto_id):
@@ -58,8 +59,8 @@ class ElegirConjuntoSerializer(serializers.Serializer):
 class CrearUsuarioSerializer(serializers.Serializer):
     tipo_documento = serializers.ChoiceField(choices=TipoDocumento.choices)
     numero_documento = serializers.CharField(max_length=20)
-    nombres = serializers.CharField(max_length=30)
-    apellidos = serializers.CharField(max_length=30)
+    nombres = campo_letras(30)
+    apellidos = campo_letras(30)
     telefono = serializers.RegexField(
         regex=r"^\+?[0-9]{7,10}$",
         max_length=10,
@@ -87,7 +88,10 @@ class CrearUsuarioSerializer(serializers.Serializer):
     def validate(self, datos):
         # Una persona existe una sola vez en la plataforma (HU-04). Vincular a alguien que ya
         # existe es otra operación (HU-07), así que aquí solo se avisa.
-        numero = normalizar_documento(datos["numero_documento"])
+        try:
+            numero = validar_documento(datos["tipo_documento"], datos["numero_documento"])
+        except serializers.ValidationError as error:
+            raise serializers.ValidationError({"numero_documento": error.detail})
         if Persona.objects.filter(tipo_documento=datos["tipo_documento"], numero_documento=numero).exists():
             raise serializers.ValidationError(
                 {"numero_documento": ["Ya existe una persona con este documento."]}
